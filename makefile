@@ -20,7 +20,7 @@ CC := gcc
 AR := ar
 DOC := doxygen
 
-all: libsudoku.a sudoku thint
+all: libsudoku.a sudoku
 
 sudoku:    $(SUDOKUF) libsudoku.a
 	   $(CC) $(CFLAGS) -o $@ $^ $(SUDOKUL)

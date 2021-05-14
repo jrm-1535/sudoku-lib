@@ -9,10 +9,13 @@
 #include <unistd.h>
 #endif
 
-#include "common.h"
+#include "sudoku.h"
+#include "grid.h"
 #include "game.h"
-#include "state.h"
 #include "files.h"
+
+#define SUDOKU_SUCCESS 0    /**< For functions returning success */
+#define SUDOKU_FAILURE (-1) /**< For functions returning some failure */
 
 /* file syntax :
 
@@ -254,7 +257,7 @@ static int parse_file( FILE *fd )
     return SUDOKU_SUCCESS;
 }
 
-int load_file( const char *name )
+extern int load_file( const char *name )
 {
     FILE *fd;
 
@@ -316,11 +319,11 @@ static int write_file( FILE *fd, const char *name )
     return 0;
 }
 
-int sudoku_save_file( void *context, const char *name )
+extern int sudoku_save_file( void *context, const char *name )
 {
-    FILE *fd;
+    (void)context;      // suppress unused paramater warning
 
-    fd = fopen( name, "w" );
+    FILE *fd = fopen( name, "w" );
     if ( NULL == fd ) {
         printf("Cannot open File %s\n", name);
         return 0;

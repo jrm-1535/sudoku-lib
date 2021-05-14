@@ -1,47 +1,25 @@
 
-/*
-  Sudoku play state handling
-*/
-
 #include <string.h>
-#include "state.h"
+#include "grid.h"
 #include "stack.h"
-#include "gen.h"
-#include "hint.h"
 
 /*
-  The game state is made of:
-  - the current grid values, kept in cellArray[ stack_ptr ]
-  - the current selection kept in rowArray[ stack_ptr ] and
-                                  colArray[ stack_ptr ]
+  A grid is a snapshot of a game state at a given time. It is made of:
+  - the current cell values, kept in cellArray[ stack_index ]
+  - the current selection kept in rowArray[ stack_index ] and
+                                  colArray[ stack_index ]
 
-  In addition, the current bookmark values are kept in markStack,
-  and the redo operation is stored in the redoLevel variable.
-
-  States are kept in the cell, row and col arrays, so that it
-  is always possible to undo an operation. It is possible to
-  redo (undo the last undo) until no other operation is done,
-  except undo (n consecutive undo operations can be redone as
-  n consecutive redo) or back (n consecutive back operations
-  can be redone as p consecutive redo). Any entry or other
-  command prevents to redo. Once all possible redo have been
-  done, the redo level is 0 and it becomes impossible to redo
-  anything.
-
+  The current game state is kept in cells and selection array, stored
+  in a grid stack, so that it is always possible to undo an operation.
+  The game stack management is in game.c, whereas grid.c only contains
+  grid and selection operations.
 */
 static sudoku_cell_t cellArray [ MAX_DEPTH ] [ SUDOKU_N_ROWS ] [ SUDOKU_N_COLS ];
 static int  rowArray[ MAX_DEPTH ], colArray[ MAX_DEPTH ];
 
-static int  markStack[ NB_MARKS ];
-static int  markLevel = 0;
-
-static int  redoLevel = 0;
-static bool lastMarkUndone = false;
-
-extern void init_state( void )
+// empty_grid makes an empty grid with no selection in the current state
+extern void empty_grid( stack_index_t csi )
 {
-    int csi = get_current_stack_index( );
-
     for ( int r = 0; r < SUDOKU_N_ROWS; r++ ) {
         for ( int c = 0; c < SUDOKU_N_COLS; c++ ) {
             cellArray[csi][r][c].state = 0;
@@ -52,12 +30,17 @@ extern void init_state( void )
     rowArray[ csi ] = colArray[ csi ] = -1;
 }
 
-extern void init_state_for_solving( int nb_states_to_save )
+// replace grid at index d with the one at index s
+extern void copy_grid( stack_index_t d, stack_index_t s )
 {
-    int psi = get_current_stack_index( ), 
-        csi = pushn( 1 + nb_states_to_save );
+    memcpy( &cellArray[ d ], &cellArray[ s ],
+            sizeof(sudoku_cell_t) * SUDOKU_N_ROWS * SUDOKU_N_COLS );
+    rowArray[ d ] = rowArray[ s ];
+    colArray[ d ] = colArray[ s ];
+}
 
-    SUDOKU_ASSERT ( csi != -1 );
+extern void copy_fill_grid( stack_index_t csi, stack_index_t psi )
+{
     for ( int r = 0; r < SUDOKU_N_ROWS; r++ ) {
         for ( int c = 0; c < SUDOKU_N_COLS; c++ ) {
             if ( 1 <= cellArray[psi][r][c].n_symbols ) {
@@ -74,162 +57,35 @@ extern void init_state_for_solving( int nb_states_to_save )
     colArray[ csi ] = colArray[ psi ];
 }
 
-extern void copy_state( int from )
+extern void get_selected_row_col( int *row, int *col )
 {
-    int tsi = get_current_stack_index(),
-        fsi = get_stack_index( from );
-
-    memcpy( &cellArray[tsi], &cellArray[fsi],
-            sizeof(sudoku_cell_t) * SUDOKU_N_ROWS * SUDOKU_N_COLS );
-    rowArray[ tsi ] = rowArray[ fsi ];
-    colArray[ tsi ] = colArray[ fsi ];
+    SUDOKU_ASSERT( row );
+    SUDOKU_ASSERT( col );
+    int csi = get_current_stack_index( );
+    *row = rowArray[ csi ];
+    *col = colArray[ csi ];
 }
 
-extern int push_state( void )
+extern void select_row_col( int row, int col )
 {
-    int psi = get_current_stack_index( );
-    int csi = push();
-
-    if ( csi != -1 ) {
-        copy_state( psi );
-        return csi;
+    int csi = get_current_stack_index( );
+    int cur_row = rowArray[ csi ];
+    if ( -1 != cur_row ) {
+        int cur_col = colArray[ csi ];
+        SUDOKU_ASSERT( -1 != cur_col );
+        cellArray[csi][cur_row][cur_col].state &= ~SUDOKU_SELECTED;
     }
-    printf("Stack overflow\n");
-    return -1;
-}
 
-static int pop_state( void )
-{
-    int csi = pop();
-
-    if ( csi >= 0 )
-        return 0;
-    return -1;
-}
-
-extern void cancel_redo( void )      // exported to game.c
-{
-    redoLevel = 0;
-    lastMarkUndone = false;
-}
-
-extern bool check_redo_level( void )  // exported to game.c
-{
-    return redoLevel > 0;
-}
-
-extern int get_redo_level( void )    // exported to game.c
-{
-    return redoLevel;
-}
-
-static void add_to_redo_level( int val )
-{
-    SUDOKU_ASSERT( val > 0 );
-    redoLevel += val;
-}
-
-extern int redo( void ) // exported to sudoku_redo in game.c
-{
-    if ( redoLevel > 0 ) {
-        int status = 1;
-        printf("Checking lastMarkUndone %d\n", lastMarkUndone );
-        if ( lastMarkUndone ) {
-            printf( "Checking sp %d @markLevel %d (val %d)\n",
-                    get_sp(), markLevel, markStack[ markLevel ] );
-            if ( markStack[ markLevel ] == get_sp() ) {
-                markLevel++;
-                lastMarkUndone = false;
-                printf("Restored lastMark @level %d\n", markLevel );
-                status = 2;
-            }
-        }
-        printf( "Redo: decrementing redoLevel (was %d before) \n", redoLevel );
-        --redoLevel;
-        push();
-        return status;
+    if ( -1 != row ) {
+        assert( -1 != col );
+        cellArray[csi][row][col].state |= SUDOKU_SELECTED;
+        update_grid_errors( row, col );
+    } else {
+        reset_grid_errors( );
     }
-    /*  if ( 0 == redoLevel )
-            lastMarkUndone = FALSE; */
-    return 0;
-}
 
-extern void erase_all_bookmarks( void )  // exported to game.c
-{
-    markLevel = 0;
-    cancel_redo();
-}
-
-extern int get_bookmark( void )   // exported to game.c
-{
-    return markLevel;
-}
-
-extern int new_bookmark( void )   // exported to sudoku_mark_state in game.c
-{
-    if ( markLevel == NB_MARKS ) return 0;
-
-    printf( "Mark: markLevel %d\n", markLevel);
-    for ( int i = 0; i <= markLevel; i++ ) {
-        printf ("   @%d mark value is %d\n", i, markStack[ i ]);
-    }
-    
-    markStack[ markLevel ] = get_sp();
-    printf(" added sp %d @markLevel %d\n", get_sp(), markLevel );
-    return ++markLevel;
-}
-
-/* check if the current state is the same as the last bookmark.
-   The return value is:
-    0 if there was no bookmark set
-    1 if the current state is not the same as the last bookmark
-    2 if the current state is the same as the last bookmark
-*/
-extern int check_at_bookmark( void )   // exported to game.c
-{
-    if ( markLevel > 0 ) {
-        SUDOKU_ASSERT( markLevel <= NB_MARKS );
-        return ( (get_sp() == markStack[ markLevel-1]) ? 2 : 1 );
-    }
-    return 0;
-}
-
-extern int undo( void ) // exported to sudoku_undo in game.c
-{
-    if ( -1 != pop_state( ) ) {
-        printf( "undo: incrementing redoLevel (was %d before) \n", redoLevel );
-        ++redoLevel;
-        printf("Checking markLevel %d\n", markLevel );
-        if ( markLevel > 0 ) {
-            if ( get_sp() == markStack[ markLevel-1] ) {
-                markLevel--;
-                lastMarkUndone = true;
-                printf("Undone lastmark (new markLevel %d)\n", markLevel );
-                return 2;
-            }
-        }
-        return 1;
-    }
-    return 0;
-}
-
-/* return to last bookmark
-
-  This actually undoes all operations till back to the last saved mark.,
-  The last bookmark is removed from the stack.
-
-*/
-extern bool return_to_last_bookmark( void )  // exported to sudoku_back_to_mark in game.c
-{
-    if ( markLevel > 0 ) {
-        int nsp, csp = get_sp( );
-        SUDOKU_ASSERT( markLevel <= NB_MARKS );
-        nsp = markStack[ --markLevel];
-        add_to_redo_level( csp - nsp );
-        set_sp( nsp );
-        return markLevel;
-    }
-    return -1;
+    rowArray[ csi ] = row;
+    colArray[ csi ] = col;
 }
 
 extern sudoku_cell_t * get_cell( int row, int col ) // exported to gen.c and hint.c
@@ -250,6 +106,40 @@ extern bool sudoku_get_cell_definition( int row, int col, sudoku_cell_t *cell )
         return true;
     }
     return false;
+}
+
+extern int get_number_from_map( unsigned short map )
+{
+    static 
+    char s_mapping[ ] = {                             // speedup a bit with a table
+    -1, 0, 1,-1, 2,-1,-1,-1, 3,-1,-1,-1,-1,-1,-1,-1,  // 0, 1:0, 2:1, 3, 4:2, 5..7, 8:3, 9..15
+     4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 16:4,17..31
+     5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 32:5, 33..47
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 48..63, 63
+     6,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 64:6, 65..79
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 80..95
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 96..111
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 112..127
+     7,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 128:7, 129..143
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 144..159
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 160..175
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 176..191
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 192..207
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 208..223
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 224..239
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 244..255
+     8                                                // 256:8
+    };
+
+  if ( map > 256 ) return -1;
+  return s_mapping[ map ];
+}
+
+extern char sudoku_get_symbol( sudoku_cell_t *cell )
+{
+    int val = get_number_from_map( cell->symbol_map );
+    if ( -1 != val ) return '1' + val;
+    return ' ';
 }
 
 extern void reset_grid_errors( void )
@@ -307,37 +197,6 @@ extern size_t update_grid_errors( int row, int col )
     return n_errors;
 }
 
-extern void get_selected_row_col( int *row, int *col )
-{
-    SUDOKU_ASSERT( row );
-    SUDOKU_ASSERT( col );
-    int csi = get_current_stack_index( );
-    *row = rowArray[ csi ];
-    *col = colArray[ csi ];
-}
-
-extern void set_selected_row_col( int row, int col )
-{
-    int csi = get_current_stack_index( );
-    int cur_row = rowArray[ csi ];
-    if ( -1 != cur_row ) {
-        int cur_col = colArray[ csi ];
-        SUDOKU_ASSERT( -1 != cur_col );
-        cellArray[csi][cur_row][cur_col].state &= ~SUDOKU_SELECTED;
-    }
-
-    if ( -1 != row ) {
-        assert( -1 != col );
-        cellArray[csi][row][col].state |= SUDOKU_SELECTED;
-        update_grid_errors( row, col );
-    } else {
-        reset_grid_errors( );
-    }
-
-    rowArray[ csi ] = row;
-    colArray[ csi ] = col;
-}
-
 extern void check_cell_integrity( sudoku_cell_t *c )
 {
     int i, j, n, map, r = 1;
@@ -359,11 +218,6 @@ extern void check_cell_integrity( sudoku_cell_t *c )
     SUDOKU_ASSERT( r );
 }
 
-extern void check_cell( int row, int col )  // exported to game.c
-{
-    check_cell_integrity( get_cell( row, col ) );
-}
-
 extern bool is_cell_given( int row, int col )
 {
     int csi = get_current_stack_index( );
@@ -380,17 +234,6 @@ extern void make_cells_given( void )  // exported to sudoku_commit_game in game.
             }
         }
     }
-}
-
-extern int count_single_symbol_cells( void )
-{
-    int nb = 0, csi = get_current_stack_index( );
-    for ( int c = 0; c < SUDOKU_N_COLS; c ++ ) {
-        for ( int r = 0; r < SUDOKU_N_ROWS; r ++ ) {
-            if ( 1 == cellArray[csi][r][c].n_symbols ) nb++;
-        }
-    }
-    return nb;
 }
 
 extern void set_cell_value( int r, int c, int v, bool is_given ) // exported to file.c
@@ -414,8 +257,27 @@ extern void add_cell_value( int r, int c, int v )               // exported to f
     }
     ccell->n_symbols++;
     ccell->symbol_map |= get_map_from_number( v );
+    check_cell_integrity( ccell );
+}
 
-    check_cell( r, c );
+extern void update_cell_value( int symbol, int row, int col )
+{
+    sudoku_cell_t *cell = get_cell( row, col );
+    int mask = get_map_from_number(symbol - '1');
+
+    if ( cell->symbol_map & mask ) {
+        SUDOKU_TRACE( SUDOKU_UI_DEBUG, ( "Removing Symbol %d (0x%02x) remaining symbols %d\n",
+                                         symbol, cell->symbol_map ^ mask, cell->n_symbols -1 ) );
+        cell->n_symbols--;
+    } else { /* symbol was not set */
+        SUDOKU_TRACE( SUDOKU_UI_DEBUG, ( "Adding Symbol %d (0x%02x) total symbols %d\n",
+                                         symbol, cell->symbol_map ^ mask,
+                                         cell->n_symbols +1  ));
+        cell->n_symbols++;
+    }
+
+    cell->symbol_map ^= mask;
+    check_cell_integrity( cell );
 }
 
 extern bool get_cell_type_n_values( int r, int c,
@@ -444,13 +306,24 @@ extern int get_map_next_value( int *vmp )                       // exported to f
     return 0;
 }
 
-extern void erase_cell( int row, int col )  // exported to sudoku_erase_selection in game.c
+extern void erase_cell( int row, int col )  // exported to game_erase_cell in game.c
 {
     sudoku_cell_t *ccell = get_cell( row, col );
     SUDOKU_ASSERT( ! SUDOKU_IS_CELL_GIVEN( ccell->state ) );
     ccell->n_symbols = 0;
     ccell->symbol_map = 0;
-    ccell->state = 0;
+    ccell->state &= SUDOKU_SELECTED;        // keep selection if any
+}
+
+extern int count_single_symbol_cells( void )
+{
+    int nb = 0, csi = get_current_stack_index( );
+    for ( int c = 0; c < SUDOKU_N_COLS; c ++ ) {
+        for ( int r = 0; r < SUDOKU_N_ROWS; r ++ ) {
+            if ( 1 == cellArray[csi][r][c].n_symbols ) nb++;
+        }
+    }
+    return nb;
 }
 
 static int get_no_conflict_candidates( int row, int col, uint16_t *pmap )
@@ -524,7 +397,8 @@ static int remove_symbol( symbol_location_t *queue, int *beyond, int row, int co
     return 0;                                       // symbol not in map, no effect
 }
 
-extern bool remove_conflicts( void ) {
+extern bool remove_grid_conflicts( void )
+{
     symbol_location_t queue[ SUDOKU_N_SYMBOLS * SUDOKU_N_SYMBOLS ];
     int start = 0;
 
@@ -571,7 +445,6 @@ extern bool remove_conflicts( void ) {
 
 extern void fill_in_cell( int row, int col, bool no_conflict )
 {
-    push_state();
     sudoku_cell_t *scell = get_cell( row, col );
 
 #if 0
@@ -628,41 +501,8 @@ extern void reset_cell_hints( void )
     }
     printf( "game: reset all cell hints\n" );
 }
-#if 0
-void make_subset_pencils( int nb, cell_ref_t *pencil_array, bool no_conflict )
-{
-    push_state();
 
-    for ( int i = 0; i < nb; i++ ) {
-        int row = pencil_array[i].row, col = pencil_array[i].col;
-        cell *scell = get_cell( row, col );
-
-        if ( 0 == scell->n_symbols ) {
-            scell->n_symbols = SUDOKU_N_SYMBOLS;
-            scell->symbol_map = SUDOKU_SYMBOL_MASK;
-
-            if ( no_conflict ) {
-                cell_ref_t error_array[MAX_CONFLICTS_PER_CELL];
-                int nb_conflicts, nb_conflict_symbols, conflict_symbol_map;
- // FIXME
-                nb_conflicts = check_cell_for_conflicts( row, col, error_array );
-                nb_conflict_symbols = conflict_symbol_map = 0;
- 
-                for ( int j = 0; j < nb_conflicts; j ++ ) {
-                    cell *ecell = get_cell( error_array[i].row, error_array[i].col );
-                    if ( 0 == ( conflict_symbol_map & ecell->symbol_map ) ) {
-                        nb_conflict_symbols ++;
-                        conflict_symbol_map |= ecell->symbol_map;
-                    }
-                }
-                scell->n_symbols -= nb_conflict_symbols;
-                scell->symbol_map &= ~ conflict_symbol_map;
-            }
-        }
-    }
-}
-#endif
-
+// Debugging functions
 extern void print_grid( void )
 {
 #if SUDOKU_PRETTY_PRINT

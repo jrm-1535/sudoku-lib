@@ -7,7 +7,8 @@
 #ifndef __STACK_H__
 #define __STACK_H__
 
-#include "sudoku.h"
+#include <stdbool.h>
+#include "debug.h"
 
 /*
    This is the undo/redo stack implementation.
@@ -18,7 +19,7 @@
    bookmarks.
 */
 #define NB_MARKS     16
-#define MAX_DEPTH    1000 /* 800 */
+#define MAX_DEPTH    1000
 /*
    The actual stack size depends on the CPU architecture
    (32 or 64 bits) and the compiler. At worst, a cell would
@@ -36,38 +37,50 @@
 extern bool is_stack_empty( void );
 
 /* The stack is seen as an infinite array (only limited by the
-   address space). Stack pointers are an index in this infinite
-   array. However the real stack is not infinite and wraps around
-   when it reaches the MAX_DEPTH limit. Although the stack pointer
-   keeps incrementing the current stack array index wraps around.
+   address space). Stack pointers are indexes in this infinite
+   array. However the real stack is finite and although the stack
+   pointer keeps incrementing, real indexes wrap around when they
+   reach MAX_DEPTH limit.
+
    The function get_sp returns the theoretical stack pointer not
-   the actual physical array index.
-*/
-extern int get_sp( void );
+   the actual physical array index. */
+
+typedef unsigned int stack_pointer_t;
+extern stack_pointer_t get_sp( void );
+
+/* It is possible to go back to a theoretical stack pointer that
+   was previously returned by get_sp() by calling set_sp(sp).
+   All games that were pushed on the atack are dismissed and the
+   current game is back to the game was current at the time
+   get_sp() was called.
+
+   The returned value is the real stack index. */
+typedef int stack_index_t;
+extern stack_index_t set_sp( stack_pointer_t sp );
 
 /* Because the undo stack is limited, there is a possibility that
-   undo evetually will not work. low water mark is a special mark
-   in the stack that guarantee it is always possible to undo from
-   the top of stack to that mark. The mark value is a theoretical
-   stack pointer.
+   undo cannot work. A special mark in the stack, low water mark
+   guarantees it is always possible to undo from the top of stack
+   to that mark. The mark value is a theoretical stack pointer.
 
-   It is also possible to quickly go back to the low water mark
-   by calling return_to_low_water_mark.
+   It is also possible to quickly go back to the low water mark,
+   dismissing all previously stacked operations, by calling
+   return_to_low_water_mark.
 */
-extern void set_low_water_mark( int mark );
-extern int  return_to_low_water_mark( int mark );
+extern void set_low_water_mark( stack_pointer_t mark );
+extern stack_pointer_t get_low_water_mark( void );
+extern void return_to_low_water_mark( stack_pointer_t mark );
 
-/* The following functions return the current stack index,
+/* The following functions return the current real stack index,
    which can be directly used to access the current game. */
+extern stack_index_t reset_stack( void );
+extern stack_index_t push( void );
+extern stack_index_t pushn( unsigned int nb );
+extern stack_index_t pop( void );
 
-extern int reset_stack( void );
-extern int push( void );
-extern int pushn( int nb );
-extern int pop( void );
-extern int set_sp( int sp );
-
-/* helper functions returning a stack index from a stack pointer */
-extern int get_stack_index( int sp );
-extern int get_current_stack_index( void );
+/* helper function returning a stack index from a theoretical
+   stack pointer */
+extern stack_index_t get_stack_index( stack_pointer_t sp );
+extern stack_index_t get_current_stack_index( void );
 
 #endif /* __STACK_H__ */

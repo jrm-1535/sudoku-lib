@@ -1,15 +1,17 @@
 /*
   Sudoku generator
 */
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>   /* for performance measurements */
 
+#include "sudoku.h"
+#include "stack.h"
+#include "grdstk.h"
+#include "grid.h"
 #include "gen.h"
 #include "hint.h"
 #include "rand.h"
-#include "state.h"
-#include "stack.h"
-
-#include <string.h>
-#include <time.h>   /* for performance measurements */
 
 bool check_debug = false;
 
@@ -147,13 +149,13 @@ static bool check_n_set_hidden_singles( void )
 
 static int check_candidates( void )
 {
-    if ( ! remove_conflicts() ) return -1;
+    if ( ! remove_grid_conflicts() ) return -1;
 
     int n_singles;
     while( true ) {
         if ( ! check_n_set_hidden_singles( ) ) return -1;
         n_singles = count_single_symbol_cells();
-        if ( ! remove_conflicts() ) return -1;
+        if ( ! remove_grid_conflicts() ) return -1;
         if ( n_singles == count_single_symbol_cells() ) break;
     }
     return n_singles;
@@ -185,6 +187,7 @@ static sudoku_cell_t * get_next_best_slot( int *prow, int *pcol )
             }
         }
     }
+    if ( lowest_candidate_number >= SUDOKU_N_SYMBOLS + 1 ) print_grid_pencils( );
     assert ( lowest_candidate_number < SUDOKU_N_SYMBOLS + 1 );
     assert ( n_less_candidates_cells > 0 );
     int choice = random_value( 0, n_less_candidates_cells - 1 );
@@ -239,10 +242,9 @@ static int try_one_candidate( game_rating_t *gr )
     int sn, nmask = 1, mask = cell->symbol_map;
     for ( sn = 0; sn < SUDOKU_N_SYMBOLS; sn ++ ) {
         if ( mask & nmask ) {
-            int csi, res;
 
-            csi = push_state();         // stack current state, down one level for new attempt
-            if ( -1 == csi ) exit(2);
+            game_new_grid(); // pusn and copy current grid, down one level for new attempt
+
             printf("Trying symbol %d mask 0x%03x in best slot n_sol %d\n", sn, nmask, gr->n_solutions );
             cell = get_cell( r, c );    // same cell in new grid, to allow backtracking later
 #if  SUDOKU_SOLVE_DEBUG
@@ -253,7 +255,7 @@ static int try_one_candidate( game_rating_t *gr )
             cell->n_symbols = 1;
             ++gr->n_guesses;
 
-            res = check_candidates( );      // -1 if impossible, or number of singles
+            int res = check_candidates( );  // -1 if impossible, or number of singles
             if ( SOLVED_COUNT == res ) {    // solved
 // #if SUDOKU_SOLVE_DEBUG
                 printf ("Solved!\n"); print_grid( );
@@ -289,7 +291,7 @@ static int try_one_candidate( game_rating_t *gr )
     return gr->n_solutions;
 }
 
-static int solve_grid( int nb_states_to_save, game_rating_t *gr, bool multiple )
+static int solve_grid( game_rating_t *gr, bool multiple )
 /* return 0, 1 or 2 according to the following table
 
     multiple n_solutions returned
@@ -301,8 +303,8 @@ static int solve_grid( int nb_states_to_save, game_rating_t *gr, bool multiple )
 {
     memset( gr, 0, sizeof(*gr) );
     gr->stop_at = ( multiple ) ? 2 : 1;
+    game_new_filled_grid();
 // TODO: in a first pass call check_candidates and if solved return immediatley 1 solution only
-    init_state_for_solving( nb_states_to_save );
     return try_one_candidate( gr );
 }
 
@@ -397,22 +399,22 @@ static void randomly_transpose( )
 //    print_grid( );
 }
 
-extern int find_one_solution( int nb_states_to_save )
+extern int find_one_solution( void )
 {
     game_rating_t ratings;
-    return solve_grid( nb_states_to_save, &ratings, false );
+    return solve_grid( &ratings, false );
 }
 
-extern int check_current_game( int nb_states_to_save )
+extern int check_current_game( void )
 {
     int sp = get_sp();
  
 #if 1 // SUDOKU_SOLVE_DEBUG
-    printf("\n#### Checking current grid for solutions @level %d nb_states_to_save %d\n", sp, nb_states_to_save);
+    printf( "\n#### Checking current grid for solutions @level %d\n", sp );
 #endif
     print_grid_pencils();
     game_rating_t ratings;
-    int res = solve_grid( nb_states_to_save, &ratings, true );
+    int res = solve_grid( &ratings, true );
 #if SUDOKU_SOLVE_DEBUG
     if ( 2 == res ) {
         printf("More than one solution!\n");
@@ -427,18 +429,6 @@ extern int check_current_game( int nb_states_to_save )
     return res;
 }
 
-static void initialize_empty_grid( void )
-{
-    for ( int row = 0; row < SUDOKU_N_ROWS; row++ ) {
-        for ( int col = 0; col < SUDOKU_N_COLS; col++ ) {
-            sudoku_cell_t *cell = get_cell( row, col );
-            cell->state = 0;
-            cell->symbol_map = 0;
-            cell->n_symbols = 0;
-        }
-    }
-}
-
 #define MAX_TRIALS  1000
 
 static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
@@ -446,7 +436,7 @@ static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
     if ( 0 != seed ) set_random_seed( seed );
 
     reset_stack();
-    initialize_empty_grid();
+    empty_grid( get_current_stack_index() );
     int n_trials = 0;
 
     while ( true ) {
@@ -460,7 +450,7 @@ static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
             cell->state = SUDOKU_GIVEN;
             cell->symbol_map = get_map_from_number( symbol );
             cell->n_symbols = 1;
-            int res = solve_grid( 0, ratings, true );
+            int res = solve_grid( ratings, true );
             printf( "solve_random_cell_array: solve_grid returned %d\n", res );
             reset_stack();
             if ( 1 == res ) break;  // exactly one solution, exit
@@ -494,7 +484,7 @@ extern int make_game( int game_nb )
     }
     printf("make_game: found unique solution\n");
     randomly_transpose( );
-    if ( 1 !=  check_current_game( 0 ) ) {
+    if ( 1 !=  check_current_game( ) ) {
         printf("no unique solution after randomly_transpose\n");
         exit(1);
     }
@@ -508,7 +498,7 @@ extern int make_game( int game_nb )
 #endif /* TIME_MEASURE */
 
     reset_stack( );
-    find_one_solution( 0 );
+    find_one_solution( );
 
 #if 1
     printf( "Game ratings:\n" );

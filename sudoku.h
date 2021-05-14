@@ -6,9 +6,6 @@
 #ifndef __SUDOKU_H__
 #define __SUDOKU_H__
 
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -216,7 +213,7 @@
    the current game can be discarded (see @ref warning_start_stop "warning").
 
    The front end should display small dialog box, for entering the game number. 
-   \see @ref pick_dialog "pick".
+   (see @ref pick_dialog "pick").
 
 @subsubsection file_enter File:Enter
 
@@ -235,8 +232,8 @@
    item. If the user selects 'quit' the frontend should warn that the game
    has not been yet created by showing the @ref warning_discard_entering dialog,
    then, if confirmed, close all windows and exit the program. If instead the
-   user selects 'cancel', the frontend should simply call back @ref sudoku_toggle_entering_new_game
-   to swich back to the normal mode.
+   user selects 'cancel', the frontend should simply call back @ref
+   sudoku_toggle_entering_new_game to swich back to the normal mode.
 
    Initially, when the game is created it has multiple solutions. Once the game
    has one and only one solution, the backend turns the same item into
@@ -244,6 +241,8 @@
    The user can still make changes to the current game and the backend may change the
    item back to "Cancel this game" if after modifications the game has no or
    more than one solution.
+
+   @see @ref menu_operation
 
    Only once the game has been either cancelled or accepted this particular
    mode is exited.
@@ -294,11 +293,11 @@
     This causes the current undo stack level to be saved at the point the player is making
     a bold guess. This allows returning quickly to the position just before the guess was
     made. Marks are put in a stack, allowing to return to multiple levels of guessing. 
-    The level is indicated in the 'back' item.
+    The level is indicated in the 'back' item. @see @ref menu_operation
 
 @subsubsection edit_back Edit:Back
     This causes the game to return to the previous mark. If multiple marks have been saved,
-    back indicates the level where it will back. 
+    back indicates the level where it will back. @see @ref menu_operation
 
 @subsubsection tools_check Tools:Check
     This causes the game to check if the game, as currently set, has a solution. The result
@@ -310,12 +309,12 @@
     The selection is also moved to the cell where the hint is meaningful,
 
 @subsubsection tools_fill Tools:Fill
-    This causes the game to penciled in the currently selected cell with all symbols that
+    This causes the game to pencil in the currently selected cell with all symbols that
     are still possible, given all other cells in the game.
 
 @subsubsection tools_fill_all Tools:FillAll
-    This causes the game to penciled all cells with all symbols that are still possible, given
-    all other cells in the game.
+    This causes the game to pencil in all cells with all symbols that are still possible,
+    given all other cells in the game.
 
 @subsubsection tools_solve Tools:Solve
     This causes the game to calculate the solution and show the result in the grid. It is
@@ -331,13 +330,10 @@
     is entered, and to indicate in the status bar if it is still possible to solve it.
 
 @subsubsection tools_options Tools:Options
-    This shows an optional dialog box that may allow:
-     - changing the color scheme or selecting among several predefined schemes.
-     - selecting among multiple font faces.
-     - turning on a timer, to display the time elapsed while playing.
+    This is not managed by the backend. The front end may provide its own UI settings.
 
-   Finally the help menu is completely dependent on the windowing system.
-   It is just expected that there is at least a help item and an About item.
+    Finally the help menu is completely dependent on the front end implementation
+    It is just expected that there is at least a help item and an About item.
 
 @section Dialogs
     The following dialogs must be presented to warn the user when something will
@@ -507,7 +503,7 @@
    -------------------------------------
 @endverbatim
 
-@subsection menu_operation Operations on menus:
+@subsection menu_operation Operations on menus
 
      - Change "Back" and "mark" to show the mark stack level (see below)
      - Change "Enter your game" into "Cancel this game" or "Accept this game".
@@ -522,7 +518,7 @@
        back end  @ref enable_menu_fct_t).
      - Each new mark increases the current back level (by @ref set_back_level_fct_t 
        called by the game back end).
-     - Each back descreases the current back level (again by @ref set_back_level_fct_t 
+     - Each back decreases the current back level (again by @ref set_back_level_fct_t 
        called by the game back end).
      - Once the back level is decremented to 0, it is disabled (by @ref 
        disable_menu_fct_t called by the game back end).
@@ -531,8 +527,8 @@
     game" menu item, to "Cancel this game" as soon as "Enter your game" has been
     selected and it switches to "Accept this game" once the proposed game has only 
     one solution. Since the text can be written in many languages, Sudoku does
-    not specify the actual text to display. Instead it indicates the logical state
-    (ENTER -> CANCEL -> COMMIT), and let the user interface deal with the actual
+    not specify the actual text to display. Instead it indicates the logical action
+    (ENTER or CANCEL or COMMIT), and let the user interface deal with the actual
     text display. Similarly for Mark and Back, only the level is passed to the
     user interface, not the actual text.
 */
@@ -541,7 +537,7 @@
 
 @section api_section Sudoku Game Interface
 
-   The API is broken down into the following groups (from the back-en perspective):
+   The API is broken down into the following groups (from the back-end perspective):
 
 @ref interface
    for user interface functions that the back-end needs to call as it processes
@@ -884,10 +880,10 @@ extern bool sudoku_is_entering_game_on_going( void );
 /** sudoku_is_entering_valid_game
    @remark If the new entered game is ready to be validated, and the user selects
            the menu item enter/accept, then the user interface should display the
-           enter game name dialog box and commit the new game. If on
-           the contrary the user is still in the process of entering a new game but
-           this one is not ready (it has more than one solution or no solution),
-           the user interface should simply toggle the mode (see @ref
+           enter game name dialog box and commit the new game. If on the contrary
+           the user is still in the process of entering a new game but this one
+           is not ready (it has more than one solution or no solution), the user
+           interface should simply cancel by toggling the mode (see @ref
            sudoku_toggle_entering_new_game).
 */
 extern bool sudoku_is_entering_valid_game( void );
@@ -1166,6 +1162,7 @@ extern void sudoku_set_selection( void *cntxt, int row, int col );
 /** sudoku_cell_state_t
     Lists all attributes a cell can have, which defines the cell rendering state */
 typedef enum {
+    SUDOKU_CANDIDATE = 0,           /**< cell is open to modifications */
     SUDOKU_GIVEN = 1,               /**< cell is given, non modifiable */
     SUDOKU_SELECTED = 2,            /**< cell is currently selected */
     SUDOKU_HINT = 4,                /**< cell is a hint (after sudoku_hint has been called) */

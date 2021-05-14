@@ -9,20 +9,37 @@
 
 #include "sudoku.h"
 
-extern sudoku_ui_table_t sudoku_ui_fcts;
+// exported to sudoku.c
 
-#define SUDOKU_REDRAW( _c )                    sudoku_ui_fcts.redraw( _c )
-#define SUDOKU_SET_WINDOW_NAME( _c, _p )       sudoku_ui_fcts.set_window_name( _c, _p )
-#define SUDOKU_SET_STATUS( _c, _s, _v )        sudoku_ui_fcts.set_status( _c, _s, _v )
-#define SUDOKU_SET_BACK_LEVEL( _c, _l )        sudoku_ui_fcts.set_back_level( _c, _l )
-#define SUDOKU_SET_ENTER_MODE( _c, _m )        sudoku_ui_fcts.set_enter_mode( _c, _m )
-#define SUDOKU_ENABLE_MENU( _c, _m )           sudoku_ui_fcts.enable_menu( _c, _m )
-#define SUDOKU_DISABLE_MENU( _c, _m )          sudoku_ui_fcts.disable_menu( _c, _m )
-#define SUDOKU_ENABLE_MENU_ITEM( _c, _m, _i )  sudoku_ui_fcts.enable_menu_item( _c, _m, _i )
-#define SUDOKU_DISABLE_MENU_ITEM( _c, _m, _i ) sudoku_ui_fcts.disable_menu_item( _c, _m, _i )
-#define SUDOKU_SUCCESS_DIALOG( _c, _d )        sudoku_ui_fcts.success_dialog( _c, _d )
+extern int  new_bookmark( void );
+extern int  get_bookmark_number( void );
+extern int  check_if_at_bookmark( void );
+extern int  return_to_last_bookmark( void );
 
-/* exported to file functions */
+extern bool is_undo_possible( void );
+extern int  undo( void );
+
+extern bool is_redo_possible( void );
+extern int  redo( void );
+
+extern void start_game( void );
+extern void reset_game( void );
+
+extern void *save_current_game( void );
+extern void *save_current_game_for_solving( void );
+extern void restore_saved_game( void *game );
+extern void update_saved_game( void *game );
+
+extern void game_new_grid( void );
+extern void game_new_empty_grid( void );
+extern void game_new_filled_grid( void );
+
+extern void game_set_cell_value( int r, int c, int v, bool is_given );
+extern void game_update_cell_value( int symbol, int row, int col );
+
+extern void game_erase_cell( int row, int col );
+extern void game_fill_cell( int row, int col, bool no_conflict );
+
 extern void set_game_time( unsigned long duration );
 extern unsigned long get_game_duration( void );
 

@@ -34,8 +34,8 @@ extern void game_new_grid( void );
 extern void game_new_empty_grid( void );
 extern void game_new_filled_grid( void );
 
-extern void game_set_cell_value( int r, int c, int v, bool is_given );
-extern void game_update_cell_value( int symbol, int row, int col );
+extern void game_set_cell_symbol( int row, int col, int symbol, bool is_given );
+extern void game_toggle_cell_candidate( int row, int col, int symbol );
 
 extern void game_erase_cell( int row, int col );
 extern void game_fill_cell( int row, int col, bool no_conflict );

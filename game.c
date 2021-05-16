@@ -313,16 +313,16 @@ extern void game_new_filled_grid( void )    // save current grid and create a ne
     cancel_redo();                          // no redo since stack is different
 }
 
-extern void game_set_cell_value( int r, int c, int v, bool is_given ) // exported to file.c
+extern void game_set_cell_symbol( int row, int col, int symbol, bool is_given ) // exported to file.c
 {
     game_new_grid( );
-    set_cell_value( r, c, v, is_given );
+    set_cell_symbol( row, col, symbol, is_given );
 }
 
-extern void game_update_cell_value( int symbol, int row, int col )
+extern void game_toggle_cell_candidate( int row, int col, int symbol )
 {
     game_new_grid( );
-    update_cell_value( symbol, row, col );
+    toggle_cell_candidate( row, col, symbol );
 }
 
 extern void game_erase_cell( int row, int col )

@@ -162,7 +162,7 @@ static int parse_assignment( FILE *fd )
         row, col (use row and col) */
     int row = cur_row, col = cur_col;
 
-    int n = 0, val, c;
+    int n = 0, c, val;
     while ( n < 2 ) {
         val = get_symbol( fd );
         if ( SUDOKU_FAILURE == val )
@@ -173,9 +173,9 @@ static int parse_assignment( FILE *fd )
 
         skip_space( fd );
 
-        c = getc( fd );      // may be a row followed by a col ?
+        c = getc( fd );     // may be a row followed by a col ?
         if (',' != c ) {
-            ungetc( c, fd ); // nope, it isn't
+            ungetc( c, fd );    // nope, it isn't
             break;
         }
         skip_space( fd );
@@ -198,7 +198,7 @@ static int parse_assignment( FILE *fd )
     val = get_symbol( fd );
     if ( SUDOKU_FAILURE == val )  return SUDOKU_FAILURE;
 
-    set_cell_value( row, col, val, is_given );
+    set_cell_symbol( row, col, val, is_given );
     if ( ! is_given ) {
         while ( true ) {
             skip_space( fd );
@@ -210,7 +210,7 @@ static int parse_assignment( FILE *fd )
             skip_space( fd );
             val = get_symbol( fd );
             if ( SUDOKU_FAILURE == val ) return SUDOKU_FAILURE;
-            add_cell_value( row, col, val );
+            add_cell_candidate( row, col, val );
         }
     }
     return SUDOKU_SUCCESS;
@@ -280,17 +280,16 @@ static int write_file( FILE *fd, const char *name )
     int r, c;
 
     fprintf(fd, "# Saved as %s\r\n\r\n", name );
-
     fprintf(fd, "T %lu \r\n", get_game_duration() );
 
     for ( r = 0; r < SUDOKU_N_ROWS; r ++ ) {
         bool row_set = false;
         for ( c = 0; c < SUDOKU_N_COLS; c++ ) {
-            size_t nbv;
-            int   vmask;
-            bool is_given = get_cell_type_n_values( r, c, &nbv, &vmask );
+            uint8_t ns;
+            int     map;
+            bool is_given = get_cell_type_n_map( r, c, &ns, &map );
 
-            if ( nbv ) {
+            if ( ns > 0 ) {
                 if ( ! row_set ) {
                     fprintf( fd, "r %c\r\n", '1' + r );
                     row_set = true;
@@ -302,15 +301,15 @@ static int write_file( FILE *fd, const char *name )
                 } else {
                     fputc( ':', fd );
                 }
-                int val = get_map_next_value( &vmask );
-                SUDOKU_ASSERT(0 != val);
-                fprintf(fd, " %c", (int)val );
+                int symbol = extract_bit_from_map( &map );
+                SUDOKU_ASSERT(0 != symbol);
+                fprintf(fd, " %d", 1 + symbol );
 
                 while( true ) {
-                    val = get_map_next_value( &vmask );
-                    if ( 0 == val ) break;
+                    symbol = extract_bit_from_map( &map );
+                    if ( 0 == symbol ) break;
 
-                    fprintf(fd, ", %c", (int)val );
+                    fprintf(fd, ", %d", 1 + symbol );
                 }
                 fputs( "\r\n", fd );
             }

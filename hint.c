@@ -821,22 +821,6 @@ static bool look_for_hidden_singles( hint_desc_t *hdesc )
         This must be done after looking for naked singles in order to benefit from the pencil clean up.
 */
 
-static int get_singles_in_game( int symbol_mask, cell_ref_t *singles )
-{
-    int count = 0;
-    for ( int r = 0; r < SUDOKU_N_ROWS; ++r ) {
-        for ( int c = 0; c < SUDOKU_N_COLS; ++c ) {
-            sudoku_cell_t * cell = get_cell( r, c );
-            if ( 1 == cell->n_symbols && ( symbol_mask & cell->symbol_map ) ) {
-                singles[count].row = r;
-                singles[count].col = c;
-                ++count;
-            }
-        }
-    }
-    return count;
-}
-
 static cell_ref_t * get_single_in_box( cell_ref_t *singles, int n_singles, int box )
 {
     int box_first_row, box_first_col;
@@ -864,19 +848,6 @@ static cell_ref_t * get_single_in_col( cell_ref_t *singles, int n_singles, int c
         if ( singles[i].col == col ) return &singles[i];
     }
     return NULL;
-}
-
-static int extract_bit( int *map )
-{
-    if ( 0 == *map ) return -1;
-
-    for ( int i = 0; ; ++i ) {
-        int mask = 1 << i;
-        if ( *map & mask ) {
-            *map &= ~mask;
-            return i;
-        }
-    }
 }
 
 typedef struct {
@@ -1046,7 +1017,7 @@ static void fill_in_row_candidates( int row, candidate_row_location_t *cbrloc, h
 
     for ( int i = 0; i < hdesc->n_candidates; ++i ) {
         hdesc->candidates[i].row = row;
-        hdesc->candidates[i].col = extract_bit( &candidate_map );
+        hdesc->candidates[i].col = extract_bit_from_map( &candidate_map );
     }
 }
 
@@ -1063,7 +1034,7 @@ static int fill_same_box_locked_row_hints( int box_row, int locked_row, int box,
             int hint_map = crloc[r].candidates[box].col_map;
 
             while ( true ) {
-                int hint_col = extract_bit( &hint_map );
+                int hint_col = extract_bit_from_map( &hint_map );
                 if ( -1 == hint_col ) break;
 
                 hdesc->hints[n_hints].row = box_row + r;
@@ -1100,7 +1071,7 @@ static int fill_other_boxes_locked_row_hints( int box_row, int locked_row, int b
             if ( 0 == n_hints ) hint_desc_init( hdesc ); // new hints are coming, re-init hdesc
 
             while ( true ) {
-                int hint_col = extract_bit( &hint_map );
+                int hint_col = extract_bit_from_map( &hint_map );
                 if ( -1 == hint_col ) break;
 
                 hdesc->hints[n_hints].row = box_row + locked_row;
@@ -1254,7 +1225,7 @@ static void fill_in_col_candidates( int col, candidate_col_location_t *cbcloc, h
     assert( hdesc->n_candidates <= 3 );
 
     for ( int i = 0; i < hdesc->n_candidates; ++i ) {
-        hdesc->candidates[i].row = extract_bit( &candidate_map );
+        hdesc->candidates[i].row = extract_bit_from_map( &candidate_map );
         hdesc->candidates[i].col = col;
     }
 }
@@ -1272,7 +1243,7 @@ static int fill_same_box_locked_col_hints( int box_col, int locked_col, int box,
             int hint_map = ccloc[c].candidates[box].row_map;
 
             while ( true ) {
-                int hint_row = extract_bit( &hint_map );
+                int hint_row = extract_bit_from_map( &hint_map );
                 if ( -1 == hint_row ) break;
 
                 hdesc->hints[n_hints].row = hint_row;
@@ -1309,7 +1280,7 @@ static int fill_other_boxes_locked_col_hints( int box_col, int locked_col, int b
             if ( 0 == n_hints ) hint_desc_init( hdesc ); // new hints are coming, re-init hdesc
 
             while ( true ) {
-                int hint_row = extract_bit( &hint_map );
+                int hint_row = extract_bit_from_map( &hint_map );
                 if ( -1 == hint_row ) break;
 
                 hdesc->hints[n_hints].row = hint_row;
@@ -1401,7 +1372,7 @@ static int check_locked_candidates( hint_desc_t *hdesc )
     for ( int symbol = 0; symbol < SUDOKU_N_SYMBOLS; ++symbol ) {
         int symbol_mask = get_map_from_number( symbol );
         cell_ref_t singles[9];
-        int n_singles = get_singles_in_game( symbol_mask, singles );
+        int n_singles = get_singles_matching_map_in_game( symbol_mask, singles );
 
         if ( 5 == symbol )
             printf( "check_locked_candidates: ready to debug\n" );
@@ -1486,7 +1457,7 @@ static int get_symbols( locate_t by, int ref, int *symbols )
 
     int n_symbols = 0;
     while (true) {
-        int symbol = extract_bit( &symbol_map );
+        int symbol = extract_bit_from_map( &symbol_map );
         if ( -1 == symbol ) break;
         symbols[n_symbols] = symbol;
         ++n_symbols;
@@ -1843,7 +1814,7 @@ static int set_X_wings_n_fish_hints( locate_t by, int symbol_mask, int n_refs, i
     int indexes[4] = { 0 };
     int n_indexes = 0, index_map = location_map;
     while ( true ) {
-        int index = extract_bit( &index_map );
+        int index = extract_bit_from_map( &index_map );
         if ( -1 == index ) break;
         indexes[n_indexes++] = index;
     }
@@ -1900,19 +1871,6 @@ static int set_X_wings_n_fish_hints( locate_t by, int symbol_mask, int n_refs, i
         }
     }
     return ( new_single ) ? 1 : (( hint ) ? 0 : -1);
-}
-
-static int get_n_bits_from_map( int map )
-{
-    int n_bits = 0;
-    for ( int i = 0; ; ++i ) {
-        if ( 0 == map ) break;
-        if ( map & 1 << i ) {
-            ++n_bits;
-            map &= ~ ( 1 << i );
-        }
-    }
-    return n_bits;
 }
 
 static int find_next_matching_set( int n_times, int n_refs, int *refs, symbol_locations_t *ref_sloc )
@@ -2749,7 +2707,7 @@ static void get_link( locate_t by, int ref,
     }
 
     for ( int i = 0; i < 2; ++i ) {
-        int index = extract_bit( &map );
+        int index = extract_bit_from_map( &map );
         switch( by ) {
         case LOCATE_BY_ROW:
             link_ref[i].row = ref;
@@ -2812,7 +2770,7 @@ static int search_for_forbidding_chains( int *selection_row, int *selection_col 
     candidate_box_location_t cbloc[SUDOKU_N_BOXES];
 
     while ( true ) {
-        int candidate = extract_bit( &candidate_map );
+        int candidate = extract_bit_from_map( &candidate_map );
         if ( -1 == candidate ) break;
 
         int n_locations = get_locations_in_rows_cols_boxes( 1 << candidate, crloc, ccloc, cbloc );

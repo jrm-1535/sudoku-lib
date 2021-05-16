@@ -22,6 +22,8 @@ DOC := doxygen
 
 all: libsudoku.a sudoku
 
+$(SUDOKUF): sudoku.h
+
 sudoku:    $(SUDOKUF) libsudoku.a
 	   $(CC) $(CFLAGS) -o $@ $^ $(SUDOKUL)
 
@@ -29,21 +31,21 @@ doc:      sudoku.h Doxyfile
 	   $(DOC)
 	   touch doc
 
-sudoku.o:  sudoku.c sudoku.h game.h grid.h stack.h gen.h files.h
+sudoku.o:  sudoku.c sudoku.h game.h grid.h stack.h gen.h files.h debug.h
 
-game.o:    game.c game.h grid.h stack.h sudoku.h
+game.o:    game.c game.h grid.h stack.h sudoku.h debug.h
 
-grid.o:    grid.c stack.h sudoku.h
+grid.o:    grid.c stack.h sudoku.h debug.h
 
-stack.o:   stack.c stack.h sudoku.h
+stack.o:   stack.c stack.h sudoku.h debug.h
 
-files.o:   files.c  files.h sudoku.h
+files.o:   files.c  files.h sudoku.h debug.h
 
 rand.o:    rand.c rand.h
 
-gen.o:     gen.c gen.h grid.h stack.h rand.h sudoku.h
+gen.o:     gen.c gen.h grid.h stack.h rand.h sudoku.h debug.h
 
-hint.o:    hint.c hint.h grid.h stack.h sudoku.h
+hint.o:    hint.c hint.h grid.h stack.h sudoku.h debug.h
 
 
 libsudoku.a: sudoku.o game.o grid.o stack.o files.o rand.o gen.o hint.o

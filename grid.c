@@ -108,10 +108,38 @@ extern bool sudoku_get_cell_definition( int row, int col, sudoku_cell_t *cell )
     return false;
 }
 
+// return the number of bits (candidates or locations) in a map. Used in hint.c
+extern int get_n_bits_from_map( int map )
+{
+    int n_bits = 0;
+    for ( int i = 0; ; ++i ) {
+        if ( 0 == map ) break;
+        if ( map & 1 << i ) {
+            ++n_bits;
+            map &= ~ ( 1 << i );
+        }
+    }
+    return n_bits;
+}
+
+// return 1 bit (candidates or locations) at a time from a map. Used in hint.c & files.c
+extern int extract_bit_from_map( int *map )
+{
+    if ( 0 == *map ) return -1;
+
+    for ( int i = 0; ; ++i ) {
+        int mask = 1 << i;
+        if ( *map & mask ) {
+            *map &= ~mask;
+            return i;
+        }
+    }
+}
+
+// return the symbol number given a cell map (assuming n_symbols is 1)
 extern int get_number_from_map( unsigned short map )
 {
-    static 
-    char s_mapping[ ] = {                             // speedup a bit with a table
+    static char s_mapping[ ] = {                      // speedup a bit with a table
     -1, 0, 1,-1, 2,-1,-1,-1, 3,-1,-1,-1,-1,-1,-1,-1,  // 0, 1:0, 2:1, 3, 4:2, 5..7, 8:3, 9..15
      4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 16:4,17..31
      5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  // 32:5, 33..47
@@ -131,8 +159,8 @@ extern int get_number_from_map( unsigned short map )
      8                                                // 256:8
     };
 
-  if ( map > 256 ) return -1;
-  return s_mapping[ map ];
+    if ( map > 256 ) return -1;
+    return s_mapping[ map ];
 }
 
 extern char sudoku_get_symbol( sudoku_cell_t *cell )
@@ -199,27 +227,17 @@ extern size_t update_grid_errors( int row, int col )
 
 extern void check_cell_integrity( sudoku_cell_t *c )
 {
-    int i, j, n, map, r = 1;
-    for ( i = j = 0, n = c->n_symbols, map = c->symbol_map; i < SUDOKU_N_SYMBOLS && n; i ++ ) {
-        if ( 1 & map ) {
-            j++;
-            n --;
-        }
-        map >>= 1;
-    }
-    if ( j != c->n_symbols ) {
-        r = 0;
-        printf( "less symbols in map %d than indicated in n_symbols %d\n", j, c->n_symbols );
-    }
-    if ( map ) {
-        r = 0;
-        printf( "Additional bits in map 0x%08x\n", c->symbol_map );
-    }
-    SUDOKU_ASSERT( r );
+    int n_symbols = get_n_bits_from_map( c->symbol_map );
+    if ( n_symbols == c->n_symbols ) return;
+
+    char *err = ( n_symbols < c->n_symbols ) ? "less" : "more";
+    printf( "%s symbols in cell map %d than indicated in n_symbols %d\n", err, n_symbols, c->n_symbols );
+    SUDOKU_ASSERT( 0 );
 }
 
 extern bool is_cell_given( int row, int col )
 {
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
     int csi = get_current_stack_index( );
     return cellArray[csi][row][col].state & SUDOKU_GIVEN;
 }
@@ -236,94 +254,108 @@ extern void make_cells_given( void )  // exported to sudoku_commit_game in game.
     }
 }
 
-extern void set_cell_value( int r, int c, int v, bool is_given ) // exported to file.c
+extern bool is_cell_empty( int row, int col )
 {
-    SUDOKU_ASSERT( r >= 0 && r < 9 && c >= 0 && c < 9 );
-    SUDOKU_ASSERT( v >= 0 && v < 9 );
-    sudoku_cell_t *ccell = get_cell( r, c );
-    ccell->n_symbols = 1;
-    if ( is_given ) ccell->state = SUDOKU_GIVEN;
-    ccell->symbol_map = 1<<v;
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
+    sudoku_cell_t *cell = get_cell( row, col );
+    return 0 == cell->n_symbols;
 }
 
-extern void add_cell_value( int r, int c, int v )               // exported to file.c
+extern void set_cell_symbol( int row, int col, int symbol, bool is_given )
 {
-    SUDOKU_ASSERT( r >= 0 && r < 9 && c >= 0 && c < 9 );
-    SUDOKU_ASSERT( v >= 0 && v < 9 );
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
+    SUDOKU_ASSERT( symbol >= 0 && symbol < 9 );
+    sudoku_cell_t *cell = get_cell( row, col );
+    cell->n_symbols = 1;
+    if ( is_given ) cell->state = SUDOKU_GIVEN;
+    cell->symbol_map = get_map_from_number( symbol );
+}
 
-    sudoku_cell_t *ccell = get_cell( r, c );
-    if ( ccell->symbol_map & get_map_from_number( v ) ) {
+extern void add_cell_candidate( int row, int col, int symbol )           // exported to file.c
+{
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
+    SUDOKU_ASSERT( symbol >= 0 && symbol < 9 );
+
+    sudoku_cell_t *cell = get_cell( row, col );
+    SUDOKU_ASSERT( 0 == (SUDOKU_GIVEN & cell->state) );
+    if ( cell->symbol_map & get_map_from_number( symbol ) ) {
         return; // value is already in the map
     }
-    ccell->n_symbols++;
-    ccell->symbol_map |= get_map_from_number( v );
-    check_cell_integrity( ccell );
+    cell->n_symbols++;
+    cell->symbol_map |= get_map_from_number( symbol );
+    check_cell_integrity( cell );
 }
 
-extern void update_cell_value( int symbol, int row, int col )
+extern void toggle_cell_candidate( int row, int col, int symbol )
 {
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
+    SUDOKU_ASSERT( symbol >= 0 && symbol < 9 );
+
     sudoku_cell_t *cell = get_cell( row, col );
-    int mask = get_map_from_number(symbol - '1');
+    int mask = get_map_from_number( symbol );
 
     if ( cell->symbol_map & mask ) {
-        SUDOKU_TRACE( SUDOKU_UI_DEBUG, ( "Removing Symbol %d (0x%02x) remaining symbols %d\n",
-                                         symbol, cell->symbol_map ^ mask, cell->n_symbols -1 ) );
-        cell->n_symbols--;
+        --cell->n_symbols;
+        SUDOKU_TRACE( SUDOKU_INTERFACE_DEBUG, ( "Removing Symbol %d (0x%02x) remaining symbols %d\n",
+                                                symbol, cell->symbol_map ^ mask, cell->n_symbols ) );
     } else { /* symbol was not set */
-        SUDOKU_TRACE( SUDOKU_UI_DEBUG, ( "Adding Symbol %d (0x%02x) total symbols %d\n",
-                                         symbol, cell->symbol_map ^ mask,
-                                         cell->n_symbols +1  ));
-        cell->n_symbols++;
+        ++cell->n_symbols;
+        SUDOKU_TRACE( SUDOKU_INTERFACE_DEBUG, ( "Adding Symbol %d (0x%02x) total symbols %d\n",
+                                                symbol, cell->symbol_map ^ mask, cell->n_symbols ) );
     }
-
     cell->symbol_map ^= mask;
     check_cell_integrity( cell );
 }
 
-extern bool get_cell_type_n_values( int r, int c,
-                                    size_t *nsp, int *vmp )     // exported to file.c
+extern bool get_cell_type_n_map( int row, int col, uint8_t *nsp, int *mp ) // exported to file.c
 {
-    SUDOKU_ASSERT( r >= 0 && r < 9 && c >= 0 && c < 9 );
-    SUDOKU_ASSERT( nsp && vmp );
-    sudoku_cell_t *ccell = get_cell( r, c );
-    *nsp = ccell->n_symbols;
-    *vmp = ccell->symbol_map;
-    return SUDOKU_IS_CELL_GIVEN( ccell->state );
-}
-
-extern int get_map_next_value( int *vmp )                       // exported to file.c
-{
-    int smap = SUDOKU_SYMBOL_MASK & *vmp;
-    int j = 1;
-
-    for ( int i = 0; i < SUDOKU_N_SYMBOLS; ++i ) {
-        if ( smap & j ) {
-            *vmp = smap ^ j;
-            return '1'+ i;
-        }
-        j <<= 1;
-    }
-    return 0;
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
+    SUDOKU_ASSERT( nsp && mp );
+    sudoku_cell_t *cell = get_cell( row, col );
+    *nsp = cell->n_symbols;
+    *mp = cell->symbol_map;
+    return SUDOKU_IS_CELL_GIVEN( cell->state );
 }
 
 extern void erase_cell( int row, int col )  // exported to game_erase_cell in game.c
 {
-    sudoku_cell_t *ccell = get_cell( row, col );
-    SUDOKU_ASSERT( ! SUDOKU_IS_CELL_GIVEN( ccell->state ) );
-    ccell->n_symbols = 0;
-    ccell->symbol_map = 0;
-    ccell->state &= SUDOKU_SELECTED;        // keep selection if any
+    sudoku_cell_t *cell = get_cell( row, col );
+    SUDOKU_ASSERT( ! SUDOKU_IS_CELL_GIVEN( cell->state ) );
+    cell->n_symbols = 0;
+    cell->symbol_map = 0;
+    cell->state &= SUDOKU_SELECTED;        // keep selection if any
 }
 
 extern int count_single_symbol_cells( void )
 {
-    int nb = 0, csi = get_current_stack_index( );
+    int n = 0;
     for ( int c = 0; c < SUDOKU_N_COLS; c ++ ) {
         for ( int r = 0; r < SUDOKU_N_ROWS; r ++ ) {
-            if ( 1 == cellArray[csi][r][c].n_symbols ) nb++;
+            sudoku_cell_t *cell = get_cell( r, c );
+            if ( 1 == cell->n_symbols ) ++n;
         }
     }
-    return nb;
+    return n;
+}
+
+/* fills the singles array with the location of cells whose single symbol matches a
+   bit in symbol_map. The single array must have been allocated by the caller with
+   enough room to allow up to SUDOKU_N_SYMBOLS * number of bits in symbol_map.
+   Return the number of singles that have been stored in singles array. */
+extern int get_singles_matching_map_in_game( int symbol_map, cell_ref_t *singles )
+{
+    int count = 0;
+    for ( int r = 0; r < SUDOKU_N_ROWS; ++r ) {
+        for ( int c = 0; c < SUDOKU_N_COLS; ++c ) {
+            sudoku_cell_t * cell = get_cell( r, c );
+            if ( 1 == cell->n_symbols && ( symbol_map & cell->symbol_map ) ) {
+                singles[count].row = r;
+                singles[count].col = c;
+                ++count;
+            }
+        }
+    }
+    return count;
 }
 
 static int get_no_conflict_candidates( int row, int col, uint16_t *pmap )

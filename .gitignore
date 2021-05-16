@@ -1,0 +1,18 @@
+*.o
+
+doc
+sudoku
+libsudoku.a
+
+gtk3/*.o
+html/
+latex/
+test/
+
+# the following patterns match temporary local files
+*.txt
+*-old*
+quad*
+thint*
+
+

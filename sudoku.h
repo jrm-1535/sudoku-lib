@@ -168,6 +168,10 @@
     according to the current game state. It specifies a menu by its index,
     and a menu item by its index in its menu.
 
+    When a menu item (or the whole menu) is disabled, the front end should not
+    accept the item shortcut and should not call the backend for the correspnding
+    action, even though the backend silently discards the request.
+
     The menu item "Enter your game" can also be modified by the backend to
     show an alternate text, for example "Cancel game" or "Commit game", by
     a frontend provided function @ref set_enter_mode_fct_t. Similarly, the
@@ -1053,6 +1057,15 @@ extern void sudoku_check_from_current_position( void *cntxt );
             to difficult to solve by simple logic only (i.e. if it needs back tracking).
 */
 extern void sudoku_hint( void *cntxt );
+
+/** sudoku_step
+   @param[in] cntxt      The graphic/UI context passed back an forth between UI front
+                         end and game backend.
+   @remark  This function can be called to execute a single step in solving a game. It
+            could be used for a demonstration, executing 1 step every few seconds, for
+            example.
+*/
+extern void sudoku_step( void *cntxt );
 
 /** sudoku_fill
    @param[in] cntxt       The graphic/UI context passed back an forth between UI front

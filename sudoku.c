@@ -187,11 +187,21 @@ extern bool sudoku_is_entering_valid_game( void )
     return (SUDOKU_ENTER == sudoku_state) && enter_game_valid;
 }
 
+static bool is_game_started( void )
+{
+    return SUDOKU_STARTED == sudoku_state;
+}
+
 static bool is_game_on( void )
 {
     return (SUDOKU_ENTER == sudoku_state) || (SUDOKU_STARTED == sudoku_state);
 }
-
+/*
+static bool is_game_over( void )
+{
+    return SUDOKU_OVER == sudoku_state;
+}
+*/
 static bool is_game_in_entering_state( void ) 
 {
     return SUDOKU_ENTER == sudoku_state;
@@ -209,7 +219,7 @@ static sudoku_ui_table_t sudoku_ui_fcts;
 #define SUDOKU_DISABLE_MENU_ITEM( _c, _m, _i ) sudoku_ui_fcts.disable_menu_item( _c, _m, _i )
 #define SUDOKU_SUCCESS_DIALOG( _c, _d )        sudoku_ui_fcts.success_dialog( _c, _d )
 
-static void init_game_menu( void *cntxt, int new_state )
+static void set_game_state( void *cntxt, int new_state )
 {
     if ( new_state == sudoku_state ) return;
 
@@ -276,7 +286,7 @@ static void init_game_menu( void *cntxt, int new_state )
         break;
 
     default:
-        printf("init_game_menu: inconsitent state %d\n", new_state );
+        printf("set_game_state: inconsitent state %d\n", new_state );
         exit(1);
     }
 }
@@ -360,7 +370,7 @@ static void set_current_selection( void *cntxt, int row, int col, bool force_red
 
     select_row_col( row, col );
     update_selection_dependent_menus( cntxt );
-    reset_cell_hints();
+    reset_cell_attributes();
     SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_BLANK, 0 );
     SUDOKU_REDRAW( cntxt );
 }
@@ -466,11 +476,11 @@ static void start_new_game( void *cntxt, const char *name )
 {
     start_game();
     remove_selection( cntxt );
-    reset_cell_hints();
+    reset_cell_attributes();
 
     SUDOKU_SET_BACK_LEVEL( cntxt, 0 );
     SUDOKU_SET_WINDOW_NAME( cntxt, name );
-    init_game_menu( cntxt, SUDOKU_STARTED );
+    set_game_state( cntxt, SUDOKU_STARTED );
     set_game_time( 0 );
     SUDOKU_REDRAW( cntxt );
 }
@@ -584,7 +594,7 @@ extern int sudoku_game_init( void *instance, int argc, char **argv,
 //        start_new_game( instance, get_game_name( args.game_number ) );
         do_game( instance, args.game_number );
     } else {
-        init_game_menu( instance, SUDOKU_INIT );
+        set_game_state( instance, SUDOKU_INIT );
     }
 
     return 0;
@@ -597,7 +607,7 @@ extern void sudoku_mark_state( void *cntxt )
 
     int mark = new_bookmark( );
     if ( mark ) {
-//        reset_cell_hints();
+//        reset_cell_attributes();
 
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_MARK,  mark  );
         SUDOKU_SET_BACK_LEVEL( cntxt, mark );
@@ -613,7 +623,7 @@ extern void sudoku_back_to_mark( void *cntxt )
     int mark = return_to_last_bookmark();
     printf("returned to mark %d\n", mark );
     if ( -1 != mark ) {
-        reset_cell_hints();
+        reset_cell_attributes();
         printf("Setting new status and updating game\n");
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_BACK, mark  );
         SUDOKU_SET_BACK_LEVEL( cntxt, mark );
@@ -630,42 +640,56 @@ static bool check_from_current_position( void )
     return res;
 }
 
-extern void sudoku_hint( void *cntxt )
+
+extern void sudoku_step( void *cntxt )
 {
-    int selection_row = -1, selection_col = -1;
-    sudoku_hint_type hint;
-
     SUDOKU_ASSERT( cntxt );
-    assert_game_state ( SUDOKU_STARTED, "sudoku_hint" );
+    if ( ! is_game_started() ) return;
 
-    reset_cell_hints();
     if ( ! check_from_current_position() ) {
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_HINT, NO_SOLUTION );
         return;
     }
 
-    hint = find_hint( &selection_row, &selection_col );
+    int step = solve_step( );
+    if ( step > 0 ) {
+        if ( step == 2 ) {  // game over
+            set_game_state( cntxt, SUDOKU_OVER );
+        }
+        SUDOKU_REDRAW( cntxt );
+    }
+}
+
+extern void sudoku_hint( void *cntxt )
+{
+    SUDOKU_ASSERT( cntxt );
+    if ( ! is_game_started( ) ) return;
+
+    reset_cell_attributes();
+    if ( ! check_from_current_position() ) {
+        SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_HINT, NO_SOLUTION );
+        return;
+    }
+
+    int selection_row = -1, selection_col = -1;
+    sudoku_hint_type hint = find_hint( &selection_row, &selection_col );
     SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_HINT, hint );
 
     if ( hint ) {
-        if ( (-1 != selection_row) && (-1 != selection_col) ) {
-            select_row_col( selection_row, selection_col ); // set_current_selection would remove hints
-            SUDOKU_ENABLE_MENU_ITEM( cntxt, SUDOKU_TOOL_MENU, SUDOKU_FILL_SEL_ITEM );
-        } else {
-            remove_selection( cntxt );
-        }
+        select_row_col( selection_row, selection_col ); // set_current_selection would remove hints
+        update_selection_dependent_menus( cntxt );
         SUDOKU_REDRAW( cntxt );
     }
 }
 
 extern void sudoku_fill( void *cntxt, bool no_conflict )
 {
-    int row, col;
-
     SUDOKU_ASSERT( cntxt );
 
-    assert_game_state ( SUDOKU_STARTED, "sudoku_fill" );
-    reset_cell_hints();
+    if ( ! is_game_started( ) ) return;
+
+    reset_cell_attributes();
+    int row, col;
     get_selected_row_col( &row, &col );
     if ( col != -1 && row != -1 ) {
         game_fill_cell( row, col, no_conflict );
@@ -679,7 +703,7 @@ extern void sudoku_fill_all( void *cntxt, bool no_conflict )
     SUDOKU_ASSERT( cntxt );
 
     assert_game_state ( SUDOKU_STARTED, "sudoku_fill_all" );
-    reset_cell_hints();
+    reset_cell_attributes();
 
     game_new_filled_grid( ); // new grid with all empty cells filled with candidates
     if ( no_conflict ) {
@@ -694,8 +718,8 @@ extern void sudoku_fill_all( void *cntxt, bool no_conflict )
 extern void sudoku_check_from_current_position( void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
-    assert_game_state ( SUDOKU_STARTED, "sudoku_check_from_current_position" );
-    reset_cell_hints();
+    if ( ! is_game_started( ) ) return;
+    reset_cell_attributes();
 
     if ( check_from_current_position( ) ) {
         SUDOKU_TRACE( SUDOKU_SOLVE_DEBUG, ("Solvable from that position!\n") );
@@ -709,9 +733,9 @@ extern void sudoku_check_from_current_position( void *cntxt )
 extern void sudoku_solve_from_current_position( void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
-    assert_game_state ( SUDOKU_STARTED, "sudoku_solve_from_current_position" );
+    if ( ! is_game_started( ) ) return;
 
-    reset_cell_hints();
+    reset_cell_attributes();
 
     void *game = save_current_game_for_solving( );
     if ( find_one_solution( ) ) {
@@ -728,7 +752,7 @@ extern void sudoku_solve_from_current_position( void *cntxt )
 
 static void update_entering_state( void *cntxt )
 {
-    reset_cell_hints();
+    reset_cell_attributes();
     switch( check_current_game( ) ) {
     case 2:
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_SEVERAL_SOLUTIONS, 0 );
@@ -789,7 +813,7 @@ static void end_game( void *cntxt )
     get_paying_duration( &duration_hms );
     printf( "         in %d hours, %d min, %d sec\n",
             duration_hms.hours, duration_hms.minutes, duration_hms.seconds );
-    init_game_menu( cntxt, SUDOKU_OVER );
+    set_game_state( cntxt, SUDOKU_OVER );
     SUDOKU_SUCCESS_DIALOG( cntxt, &duration_hms );
 }
 
@@ -804,7 +828,7 @@ static bool toggle_symbol( void *cntxt, int symbol, int row, int col )
         update_entering_state( cntxt );
         update_edit_menu( cntxt );
         SUDOKU_REDRAW( cntxt );
-    } else {
+    } else if ( is_game_started( ) ){
         game_toggle_cell_candidate( row, col, symbol-'1' );
         if ( show_conflict ) { update_grid_errors( row, col ); }
         update_edit_menu( cntxt );
@@ -833,7 +857,7 @@ extern void sudoku_enter_symbol( void *cntxt, int symbol )
 #if SUDOKU_GRAPHIC_DEBUG
         printf("toggle key code %d\n", symbol );
 #endif
-        reset_cell_hints();
+        reset_cell_attributes();
         if ( toggle_symbol( cntxt, symbol, row, col ) ) end_game(cntxt);
     }
 }
@@ -849,11 +873,11 @@ extern void sudoku_toggle_entering_new_game( void *cntxt )
     if ( is_game_in_entering_state( ) ) {
         // cancel entering mode
         SUDOKU_SET_ENTER_MODE( cntxt, SUDOKU_ENTER_GAME );
-        init_game_menu( cntxt, SUDOKU_INIT );
+        set_game_state( cntxt, SUDOKU_INIT );
     } else {
         // starts entering new game mode
         SUDOKU_SET_ENTER_MODE( cntxt, SUDOKU_CANCEL_GAME );
-        init_game_menu( cntxt, SUDOKU_ENTER );
+        set_game_state( cntxt, SUDOKU_ENTER );
     }
     empty_game( cntxt );
 }
@@ -899,7 +923,7 @@ extern void sudoku_erase_selection( void *cntxt )
     if ( -1 != row && -1 != col && ! is_cell_empty( row, col ) ) {
         SUDOKU_TRACE( SUDOKU_INTERFACE_DEBUG, ("Erase\n"));
 
-        reset_cell_hints();
+        reset_cell_attributes();
         game_erase_cell( row, col );
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_BLANK, 0 );
         update_edit_menu( cntxt );
@@ -919,7 +943,7 @@ extern void sudoku_commit_game( void *cntxt, const char *game_name )
     SUDOKU_SET_ENTER_MODE( cntxt, SUDOKU_ENTER_GAME );
     SUDOKU_SET_WINDOW_NAME( cntxt, game_name );
     SUDOKU_SET_BACK_LEVEL( cntxt, 0 );
-    init_game_menu( cntxt, SUDOKU_STARTED );
+    set_game_state( cntxt, SUDOKU_STARTED );
     start_game( );
     set_game_time( 0 );
     SUDOKU_REDRAW( cntxt );
@@ -976,6 +1000,7 @@ extern int sudoku_open_file( void *cntxt, const char *path )
 extern void sudoku_undo( void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
+    if ( ! is_game_on( ) ) return;
 
     int undo_status = undo();
     if ( undo_status > 0 ) {
@@ -989,7 +1014,7 @@ extern void sudoku_undo( void *cntxt )
         if ( 2 == undo_status ) {
             SUDOKU_SET_BACK_LEVEL( cntxt, get_bookmark_number( ) );
         }
-        reset_cell_hints();
+        reset_cell_attributes();
         update_edit_menu( cntxt );
         SUDOKU_REDRAW( cntxt );
     } else {
@@ -1000,6 +1025,7 @@ extern void sudoku_undo( void *cntxt )
 extern void sudoku_redo( void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
+    if ( ! is_game_on( ) ) return;
 
     int redo_status = redo();
     if ( redo_status > 0 ) {
@@ -1013,7 +1039,7 @@ extern void sudoku_redo( void *cntxt )
         if ( 2 == redo_status ) {
             SUDOKU_SET_BACK_LEVEL( cntxt, get_bookmark_number( ) );
         }
-        reset_cell_hints();
+        reset_cell_attributes();
         update_edit_menu( cntxt );
         SUDOKU_REDRAW( cntxt );
     } else {

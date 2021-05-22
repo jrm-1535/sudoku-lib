@@ -35,11 +35,11 @@ sudoku.o:  sudoku.c sudoku.h game.h grid.h stack.h gen.h files.h debug.h
 
 game.o:    game.c game.h grid.h stack.h sudoku.h debug.h
 
-grid.o:    grid.c stack.h sudoku.h debug.h
+grid.o:    grid.c grid.h stack.h sudoku.h debug.h
 
 stack.o:   stack.c stack.h sudoku.h debug.h
 
-files.o:   files.c  files.h sudoku.h debug.h
+files.o:   files.c files.h grid.h sudoku.h debug.h
 
 rand.o:    rand.c rand.h
 

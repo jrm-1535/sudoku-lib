@@ -923,6 +923,12 @@ static gint key_event( GtkWidget *widget, GdkEventKey *event, gpointer data )
 #endif
             sudoku_redo( (void *)game_cntxt );
             return TRUE;
+        case 't': case 'T':
+#if 1 //SUDOKU_GRAPHIC_DEBUG
+            printf( "Execute 1 step\n");
+#endif
+            sudoku_step( (void *)game_cntxt );
+            return TRUE;
         case 'z': case 'Z':
 #if SUDOKU_GRAPHIC_DEBUG
             printf("Erase!\n");

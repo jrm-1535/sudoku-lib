@@ -1,3 +1,4 @@
 #sudoku-lib
 
 A library providing the main sudoku game operations. Add a frontend UI to implement the game.
+Under gtk3/ is an example of front end.

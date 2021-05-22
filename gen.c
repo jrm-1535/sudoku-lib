@@ -307,7 +307,7 @@ static int solve_grid( game_rating_t *gr, bool multiple )
 // TODO: in a first pass call check_candidates and if solved return immediatley 1 solution only
     return try_one_candidate( gr );
 }
-
+#if 0
 static int check_grid_for_solution( void )
 {
     int total_n_symbols = 0;
@@ -360,7 +360,7 @@ static int check_grid_for_solution( void )
     }
     return total_n_symbols;
 }
-
+#endif
 static void randomly_transpose( )
 {
     int symbols[SUDOKU_N_SYMBOLS] = { -1 };
@@ -467,6 +467,137 @@ static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
     return true;
 }
 
+static bool act_on_hint( hint_desc_t *hdesc )
+{
+    SUDOKU_ASSERT( hdesc->n_hints );
+    switch ( hdesc->action ) {
+    case NONE: case ADD:
+        SUDOKU_ASSERT( 0 );
+    case SET:
+        for ( int i = 0; i < hdesc->n_hints; ++i ) {
+            set_cell_candidates( hdesc->hints[i].row, hdesc->hints[i].col,
+                                 hdesc->n_symbols, hdesc->symbol_map );
+        }
+        break;
+    case REMOVE:
+        for ( int i = 0; i < hdesc->n_hints; ++i ) {
+            remove_cell_candidates( hdesc->hints[i].row, hdesc->hints[i].col,
+                                    hdesc->n_symbols, hdesc->symbol_map );
+        }
+        break;
+    }
+    return is_game_solved(); 
+}
+
+extern int solve_step( void )
+{
+    void *game = save_current_game_for_solving();
+    hint_desc_t hdesc;
+    bool hint = get_hint( &hdesc );
+    restore_saved_game( game );
+
+    if ( hint ) {
+        if ( act_on_hint( &hdesc ) ) return 2;
+        return 1;
+    }
+    return 0;
+}
+
+typedef enum { EASY, MILD, MODERATE, DIFFICULT } level_t;
+
+typedef struct {
+    int n_naked_singles, n_hidden_singles;
+    int n_locked_candidates;
+    int n_naked_subsets, n_hidden_subsets;
+    int n_fishes, n_xy_wings, n_chains;
+} hint_stats_t;
+
+static void print_hint_stats( hint_stats_t *hstats )
+{
+    printf( "#Level determination:\n" );
+    printf( "  naked singles: %d\n", hstats->n_naked_singles );
+    printf( "  hidden singles: %d\n", hstats->n_hidden_singles );
+    printf( "  locked candidates: %d\n", hstats->n_locked_candidates );
+    printf( "  naked subsets: %d\n", hstats->n_naked_subsets );
+    printf( "  hidden subsets: %d\n", hstats->n_hidden_subsets );
+    printf( "  X-wings, fishes: %d\n", hstats->n_fishes );
+    printf( "  XY-wings: %d\n", hstats->n_xy_wings );
+    printf( "  chains: %d\n", hstats->n_chains );
+}
+
+static level_t assess_hint_stats( hint_stats_t *hstats )
+{
+    print_hint_stats( hstats );
+
+    if ( hstats->n_chains || hstats->n_fishes || hstats->n_xy_wings ) return DIFFICULT;
+
+    if ( hstats->n_hidden_subsets ) return MODERATE;
+
+    if ( hstats->n_naked_subsets || hstats->n_locked_candidates ) return MILD;
+
+    return EASY;
+}
+
+static level_t evaluate_level( void )
+{
+    print_grid_pencils(); // before
+    game_new_filled_grid();
+    print_grid_pencils(); // after
+
+    hint_stats_t hstats = { 0 };
+    hint_desc_t hdesc;
+    while ( true ) {
+        if ( ! get_hint( &hdesc ) ) break;  // no hint
+
+        printf("@act_on_hint:\n");
+        printf("  hint_type %d\n", hdesc.hint_type);
+        printf("  n_hints %d\n", hdesc.n_hints);
+        printf("  n_triggers %d\n", hdesc.n_triggers);
+        printf("  action %d n_symbols=%d, map=0x%03x\n",
+               hdesc.action, hdesc.n_symbols, hdesc.symbol_map);
+
+        switch( hdesc.hint_type ) {
+        case NO_HINT: case NO_SOLUTION:
+            SUDOKU_ASSERT( 0 );
+        case NAKED_SINGLE:
+            ++hstats.n_naked_singles;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        case HIDDEN_SINGLE:
+            ++hstats.n_hidden_singles;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        case LOCKED_CANDIDATE:
+            ++hstats.n_locked_candidates;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        case NAKED_SUBSET:
+            ++hstats.n_naked_subsets;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        case HIDDEN_SUBSET:
+            ++hstats.n_hidden_subsets;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        case XWING: case SWORDFISH: case JELLYFISH:
+            ++hstats.n_fishes;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        case XY_WING:
+            ++hstats.n_xy_wings;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        case CHAIN:
+            ++hstats.n_chains;
+            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
+            break;
+        }
+    }
+    print_hint_stats( &hstats );
+    printf( "Stopped at NO_HINT\n" );
+    return DIFFICULT;
+}
+
 extern int make_game( int game_nb )
 {
 #ifdef TIME_MEASURE
@@ -498,29 +629,8 @@ extern int make_game( int game_nb )
 #endif /* TIME_MEASURE */
 
     reset_stack( );
-    find_one_solution( );
-
-#if 1
-    printf( "Game ratings:\n" );
-    printf( "  Naked singles %d Hidden singles %d\n", ratings.n_naked, ratings.n_hidden );
-    printf( "  Guesses %d, Wrong guesses %d\n", ratings.n_guesses, ratings.n_wrong_guesses );
-#endif
-    int difficulty = ratings.n_guesses * 10 - ( ratings.n_naked * 2 ) - ( ratings.n_hidden );
-
-    char *s;
-    if ( difficulty > 20 ) {
-        s = "Tough";
-    } else if ( difficulty > 10 ) {
-        s = "Medium";
-    } else {
-        s = "Easy";
-    }
-    printf("%s game\n", s );
-
-  /*
-    printf("Solution:\n");
-    print_grid( );
-  */
+    level_t level = evaluate_level( );
+    printf("Difficulty level %d\n", level );
     reset_stack();
     return 0;
 }

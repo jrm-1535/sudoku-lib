@@ -307,6 +307,31 @@ extern void toggle_cell_candidate( int row, int col, int symbol )
     check_cell_integrity( cell );
 }
 
+extern void set_cell_candidates( int row, int col, int n_candidates, int candidate_map )
+{
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
+    SUDOKU_ASSERT( n_candidates > 0 && n_candidates <= SUDOKU_N_SYMBOLS );
+
+    sudoku_cell_t *cell = get_cell( row, col );
+    cell->symbol_map = candidate_map;
+    cell->n_symbols = n_candidates;
+    check_cell_integrity( cell );
+}
+
+extern void remove_cell_candidates( int row, int col, int n_candidates, int candidate_map )
+{
+    SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
+    SUDOKU_ASSERT( n_candidates > 0 && n_candidates <= SUDOKU_N_SYMBOLS );
+
+    sudoku_cell_t *cell = get_cell( row, col );
+    int n_in_common = get_n_bits_from_map( cell->symbol_map & candidate_map );
+    SUDOKU_ASSERT( n_candidates >= n_in_common );
+
+    cell->n_symbols -= n_in_common;
+    cell->symbol_map = cell->symbol_map & ~candidate_map;
+    check_cell_integrity( cell );
+}
+
 extern bool get_cell_type_n_map( int row, int col, uint8_t *nsp, int *mp ) // exported to file.c
 {
     SUDOKU_ASSERT( row >= 0 && row < 9 && col >= 0 && col < 9 );
@@ -497,22 +522,22 @@ extern void fill_in_cell( int row, int col, bool no_conflict )
     }
 }
 
-extern void set_cell_hint( int row, int col, hint_e hint )
+extern void set_cell_attributes( int row, int col, cell_attrb_t attrb )
 {
     int csi = get_current_stack_index( );
-    if ( HINT_REGION & hint ) {
+    if ( HINT & attrb ) {
         cellArray[csi][row][col].state |= SUDOKU_HINT;
-    } else if ( WEAK_TRIGGER_REGION & hint ) {
+    } else if ( WEAK_TRIGGER & attrb ) {
         cellArray[csi][row][col].state |= SUDOKU_WEAK_TRIGGER;
-    } else if ( TRIGGER_REGION & hint ) {
+    } else if ( REGULAR_TRIGGER & attrb ) {
         cellArray[csi][row][col].state |= SUDOKU_TRIGGER;
-    } else if ( ALTERNATE_TRIGGER_REGION & hint ) {
+    } else if ( ALTERNATE_TRIGGER & attrb ) {
         cellArray[csi][row][col].state |= SUDOKU_ALTERNATE_TRIGGER;
     }
-    if ( CHAIN_HEAD & hint ) {
+    if ( HEAD & attrb ) {
         cellArray[csi][row][col].state |= SUDOKU_CHAIN_HEAD;
     }
-    if ( (PENCIL & hint) && (0 == cellArray[csi][row][col].n_symbols) ) {
+    if ( (PENCIL & attrb) && (0 == cellArray[csi][row][col].n_symbols) ) {
         cellArray[csi][row][col].n_symbols =
             get_no_conflict_candidates( row, col, &cellArray[csi][row][col].symbol_map );
     }
@@ -520,7 +545,7 @@ extern void set_cell_hint( int row, int col, hint_e hint )
 //        csi, row, col, hint, cellArray[csi][row][col].state );
 }
 
-extern void reset_cell_hints( void )
+extern void reset_cell_attributes( void )
 {
     int csi = get_current_stack_index( );
 
@@ -531,7 +556,7 @@ extern void reset_cell_hints( void )
                 ~SUDOKU_WEAK_TRIGGER & ~SUDOKU_TRIGGER & ~SUDOKU_ALTERNATE_TRIGGER;
         }
     }
-    printf( "game: reset all cell hints\n" );
+    printf( "game: reset all cell attributes\n" );
 }
 
 // Debugging functions

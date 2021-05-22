@@ -50,24 +50,10 @@ extern bool is_cell_empty( int row, int col );
 extern void set_cell_symbol( int row, int col, int symbol, bool is_given );
 extern void add_cell_candidate( int row, int col, int symbol );
 extern void toggle_cell_candidate( int row, int col, int symbol );
+extern void set_cell_candidates( int row, int col, int n_candidates, int candidate_map );
+extern void remove_cell_candidates( int row, int col, int n_candidates, int candidate_map );
 extern void erase_cell( int row, int col );
 extern bool get_cell_type_n_map( int row, int col, uint8_t *nsp, int *mp );
-
-typedef struct {
-    int row, col;
-} cell_ref_t;       // reference to a cell by row & col
-
-extern int count_single_symbol_cells( void );
-extern int get_singles_matching_map_in_game( int symbol_map, cell_ref_t *singles );
-
-#define SOLVED_COUNT (SUDOKU_N_ROWS*SUDOKU_N_COLS)
-static inline bool is_game_solved( void )
-{
-    return SOLVED_COUNT == count_single_symbol_cells();
-}
-
-extern bool remove_grid_conflicts( void );
-extern void fill_in_cell( int row, int col, bool no_conflict );
 
 extern sudoku_cell_t * get_cell( int row, int col );
 extern bool sudoku_get_cell_definition( int row, int col, sudoku_cell_t *cell );
@@ -81,17 +67,38 @@ static inline unsigned short get_map_from_number( int number )
     return 1 << number;
 }
 
+typedef struct {
+    int row, col;
+} cell_ref_t;       // reference to a cell by row & col
+
+extern int count_single_symbol_cells( void );
+extern int get_singles_matching_map_in_game( int symbol_map, cell_ref_t *singles );
+
+static inline bool is_single_ref( cell_ref_t *cr )
+{
+    sudoku_cell_t *cell = get_cell( cr->row, cr->col );
+    return 1 == cell->n_symbols;
+}
+
+#define SOLVED_COUNT (SUDOKU_N_ROWS*SUDOKU_N_COLS)
+static inline bool is_game_solved( void )
+{
+    return SOLVED_COUNT == count_single_symbol_cells();
+}
+
+extern bool remove_grid_conflicts( void );
+extern void fill_in_cell( int row, int col, bool no_conflict );
+
 extern void reset_grid_errors( void );
 extern size_t update_grid_errors( int row, int col );
 
 typedef enum {
-    HINT_REGION = 1,
-    WEAK_TRIGGER_REGION = 2, TRIGGER_REGION = 4, ALTERNATE_TRIGGER_REGION = 8,
-    CHAIN_HEAD = 16, PENCIL = 32
-} hint_e;
+    HINT = 1, REGULAR_TRIGGER = 2, WEAK_TRIGGER = 4, ALTERNATE_TRIGGER = 8, // exclusive
+    HEAD = 16, PENCIL = 32                                                  // can be combined
+} cell_attrb_t;
 
-extern void set_cell_hint( int row, int col, hint_e hint );
-extern void reset_cell_hints( void );
+extern void set_cell_attributes( int row, int col, cell_attrb_t attrb );
+extern void reset_cell_attributes( void );
 
 extern void print_grid( void );
 extern void print_grid_pencils( void );

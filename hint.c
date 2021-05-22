@@ -81,6 +81,11 @@ static void get_other_boxes_in_same_box_col( int box, int *other_boxes )
     }
 }
 
+static inline int get_cell_ref_box( cell_ref_t *cr )
+{
+    return get_surrounding_box( cr->row, cr->col );
+}
+
 static inline bool is_cell_ref_in_box( int box, cell_ref_t *cr )
 {
     return box == get_surrounding_box( cr->row, cr->col );
@@ -144,70 +149,6 @@ static void get_box_col_intersection( int box, int col, cell_ref_t *intersection
     }
 }
 
-
-struct _cache_cell {
-    int    row, col;
-    hint_e hint;
-};
-/* implement a hint cache with room for all cells intersecting
-   row, col and box, that is:
-    - in 1 row at most (SUDOKU_N_SYMBOLS), plus
-    - in 1 col at most (SUDOKU_N_SYMBOLS), plus
-    - in 1 box at most (SUDOKU_N_SYMBOLS)
-*/
-static struct _cache_cell hint_cache[ 3 * SUDOKU_N_SYMBOLS ];
-static int                hint_cache_size;
-
-static void cache_hint_cell( int row, int col, hint_e hint )
-{
-    hint_cache[hint_cache_size].row = row;
-    hint_cache[hint_cache_size].col = col;
-    hint_cache[hint_cache_size++].hint = hint;
-}
-#if 0
-static int get_hint_cache_size( void )
-{
-    return hint_cache_size;
-}
-#endif
-static void reset_hint_cache( void )
-{
-    hint_cache_size = 0;
-}
-
-static void write_cache_hints( void )
-{
-    for ( int i = 0; i < hint_cache_size; ++i ) {
-        set_cell_hint( hint_cache[i].row, hint_cache[i].col, hint_cache[i].hint );
-    }
-}
-
-typedef enum {
-    NONE, SET, REMOVE, ADD
-} hint_action_t;
-
-typedef struct {
-    sudoku_hint_type    hint_type;
-    int                 n_hints;            // where symbols can be removed
-    int                 n_triggers;         // where other symbols trigger hints/candidates
-    int                 n_weak_triggers;    // where previous reduction created a trigger
-    int                 n_candidates;       // where symbol could be placed 
-
-    bool                hint_pencil;        // whether to show penciled symbols in hint cells
-    bool                trigger_pencil;     // whether to show penciled symbols in trigger cells
-    
-    cell_ref_t          hints[ SUDOKU_N_SYMBOLS ];  // TODO: check how many are actually needed
-    cell_ref_t          triggers[ SUDOKU_N_SYMBOLS ];
-    cell_ref_t          weak_triggers[ SUDOKU_N_SYMBOLS ];
-    cell_ref_t          candidates[ SUDOKU_N_SYMBOLS ];
-
-    cell_ref_t          selection;
-
-    hint_action_t       action;
-    int                 n_symbols;  // only for SET
-    int                 symbol_map;
-} hint_desc_t;
-
 static void hint_desc_init( hint_desc_t *hdesc )
 {
     memset( hdesc, 0, sizeof(hint_desc_t) );
@@ -239,73 +180,113 @@ static inline void hint_desc_add_row_col_hint( hint_desc_t *hdesc, int row, int 
     ++hdesc->n_hints;
 }
 
-static inline void hint_desc_add_cell_ref_trigger( hint_desc_t *hdesc, cell_ref_t *cr )
+static inline void hint_desc_add_cell_ref_trigger( hint_desc_t *hdesc, cell_ref_t *cr, cell_attrb_t attrb )
 {
     assert( hdesc->n_triggers < SUDOKU_N_SYMBOLS );
-    hdesc->triggers[ hdesc->n_triggers++ ] = *cr;
+    hdesc->triggers[ hdesc->n_triggers ] = *cr;
+    hdesc->flavors[ hdesc->n_triggers ] = attrb;
+    ++hdesc->n_triggers;
 }
 
-static inline void hint_desc_add_row_col_trigger( hint_desc_t *hdesc, int row, int col )
+static inline void hint_desc_add_row_col_trigger( hint_desc_t *hdesc, int row, int col, cell_attrb_t attrb )
 {
     assert( hdesc->n_triggers < SUDOKU_N_SYMBOLS );
     hdesc->triggers[ hdesc->n_triggers ].row = row;
     hdesc->triggers[ hdesc->n_triggers ].col = col;
+    hdesc->flavors[ hdesc->n_triggers ] = attrb;
     ++hdesc->n_triggers;
 }
 
-static inline void hint_desc_add_cell_ref_weak_trigger( hint_desc_t *hdesc, cell_ref_t *cr )
+
+static char *get_flavor( cell_attrb_t attrb )
 {
-    assert( hdesc->n_weak_triggers < SUDOKU_N_SYMBOLS );
-    hdesc->weak_triggers[ hdesc->n_weak_triggers++ ] = *cr;
+    static char buffer[ 64 ];
+
+    char *flavor = NULL;
+    int n = 0;
+
+#define RT  "REGULAR_TRIGGER "
+#define WT  "WEAK_TRIGGER "
+#define AT  "ALTERNATE_TRIGGER "
+
+    if ( attrb & REGULAR_TRIGGER ) {
+        flavor = RT;
+        n = sizeof(RT);
+    } else if ( attrb & WEAK_TRIGGER ) {
+        flavor = WT;
+        n = sizeof(WT);
+    } else if ( attrb & ALTERNATE_TRIGGER ) {
+        flavor = AT;
+        n = sizeof(AT);
+    } else {
+        printf( "get_flavor: attrb=%d\n", attrb );
+        SUDOKU_ASSERT( 0 );
+    }
+
+    strcpy( buffer, flavor );
+    buffer[ n++ ] = '|';
+
+#define HD  " HEAD "
+#define PC  " PENCIL "
+
+    if( attrb & HEAD ) {
+        strcpy( &buffer[n], HD );
+        n += sizeof(HD);
+    }
+    if ( attrb & PENCIL ) {
+        strcpy( &buffer[n], PC );
+    }
+    return buffer;
 }
 
-static void cache_hint_from_desc( hint_desc_t *hdesc )
+static void set_cell_attributes_from_desc( hint_desc_t *hdesc )
 {
-    printf("cache_hint_from_desc:\n");
+    printf("set_cell_attributes_from_desc:\n");
     printf(" hint_type %d\n", hdesc->hint_type);
     printf(" n_hints %d\n", hdesc->n_hints);
     printf(" n_triggers %d\n", hdesc->n_triggers);
-    printf(" n_weak_triggers %d\n", hdesc->n_weak_triggers);
+    printf(" n_candidates %d\n", hdesc->n_candidates);
 
-    int cell_attrb = ( hdesc->hint_pencil ) ? HINT_REGION | PENCIL : HINT_REGION;
+    int attrb = ( hdesc->hint_pencil ) ? HINT | PENCIL : HINT;
     for ( int i = 0; i < hdesc->n_hints; ++i ) {
-        cache_hint_cell( hdesc->hints[i].row, hdesc->hints[i].col, cell_attrb );
+        set_cell_attributes( hdesc->hints[i].row, hdesc->hints[i].col, attrb );
         printf(" hints[%d] = (%d, %d)\n", i, hdesc->hints[i].row, hdesc->hints[i].col);
     }
-    cell_attrb = ( hdesc->trigger_pencil ) ? TRIGGER_REGION | PENCIL : TRIGGER_REGION;
+
     for ( int i = 0; i < hdesc->n_triggers; ++i ) {
-        cache_hint_cell( hdesc->triggers[i].row, hdesc->triggers[i].col, cell_attrb );
-        printf(" triggers[%d] = (%d, %d)\n", i, hdesc->triggers[i].row, hdesc->triggers[i].col);
-    }
-    for ( int i = 0; i < hdesc->n_weak_triggers; ++i ) {
-        cache_hint_cell( hdesc->weak_triggers[i].row, hdesc->weak_triggers[i].col, WEAK_TRIGGER_REGION | PENCIL );
-        printf(" weak triggers[%d] = (%d, %d)\n", i, hdesc->weak_triggers[i].row, hdesc->weak_triggers[i].col);
+        set_cell_attributes( hdesc->triggers[i].row, hdesc->triggers[i].col, hdesc->flavors[i] );
+        printf(" triggers[%d] flavor %s = (%d, %d)\n", i, get_flavor(hdesc->flavors[i]),
+               hdesc->triggers[i].row, hdesc->triggers[i].col);
     }
     for ( int i = 0; i < hdesc->n_candidates; ++i ) {
-        cache_hint_cell( hdesc->candidates[i].row, hdesc->candidates[i].col, ALTERNATE_TRIGGER_REGION | PENCIL );
+        set_cell_attributes( hdesc->candidates[i].row, hdesc->candidates[i].col, ALTERNATE_TRIGGER | PENCIL );
     }
 
-    printf(" selection (%d, %d) \n", hdesc->selection.row, hdesc->selection.col);
+    printf(" selection (%d, %d)\n", hdesc->selection.row, hdesc->selection.col);
     printf(" action %d n_symbols=%d, map=0x%03x\n", hdesc->action, hdesc->n_symbols, hdesc->symbol_map);
 }
 
 /* 1. looking for naked singles - note that this must be done first
    in order to remove all known single symbols from other cells. */
 
-static bool remove_symbol( int row, int col, int remove_mask )
+static int remove_symbol( int row, int col, int remove_mask )
 {
     sudoku_cell_t *cell = get_cell( row, col );
 
 //    if ( cell->n_symbols >= 1 && (cell->symbol_map & remove_mask) ) {
     if ( cell->symbol_map & remove_mask ) {
-        SUDOKU_ASSERT ( cell->n_symbols > 1 );      // in theory not possible
-        cell->symbol_map &= ~remove_mask;           // remove single symbol
-        if ( 1 == --cell->n_symbols ) return true;  // found a new naked single
+        if ( cell->n_symbols == 1 ) {
+            print_grid_pencils();
+            printf( "remove_symbol mask = 0x%03x row %d, col %d\n", remove_mask, row, col );
+        }
+        SUDOKU_ASSERT ( cell->n_symbols > 1 );                  // in theory not possible
+        cell->symbol_map &= ~remove_mask;                       // remove single symbol mask
+        if ( 1 == --cell->n_symbols ) return cell->symbol_map;  // found a new naked single
     }
-    return false;
+    return 0;
 }
 
-static bool check_box_of( int row, int col, int remove_mask, 
+static int check_box_of( int row, int col, int remove_mask, 
 			              int *row_hint, int *col_hint )
 {
     int first_row = row - (row % 3);
@@ -315,42 +296,47 @@ static bool check_box_of( int row, int col, int remove_mask,
         for ( int c = first_col; c < first_col + 3; ++c ) {
             if ( r == row && c == col ) continue;   // don't check itself
 
-            if ( remove_symbol( r, c, remove_mask ) ) {
+            int single_mask = remove_symbol( r, c, remove_mask );
+            if ( single_mask ) {
                 *row_hint = r;
                 *col_hint = c; 
-                return true;
+                return single_mask;
             }
         }
     }
-    return false;
+    return 0;
 }
 
-static bool check_row_of( int row, int col, int remove_mask, int *col_hint )
+static int check_row_of( int row, int col, int remove_mask, int *col_hint )
 {
     int first_col = col - (col % 3); // assuming box has been or will be processed for the same mask
+
     for ( int c = 0; c < SUDOKU_N_COLS; c++ ) {
         if ( c >= first_col && c < first_col + 3 ) continue;
 
-        if ( remove_symbol( row, c, remove_mask ) ) {
+        int single_mask = remove_symbol( row, c, remove_mask );
+        if ( single_mask ) {
             *col_hint = c;
-            return true;
+            return single_mask;
         }
     }
-    return false;
+    return 0;
 }
 
 static int check_col_of( int row, int col, int remove_mask, int *row_hint )
 {
     int first_row = row - (row % 3); // assuming box has been or will be processed for the same mask
+
     for ( int r = 0; r < SUDOKU_N_ROWS; r++ ) {
         if ( r >= first_row && r < first_row + 3 ) continue;
 
-        if ( remove_symbol( r, col, remove_mask ) ) {
+        int single_mask = remove_symbol( r, col, remove_mask );
+        if ( single_mask ) {
             *row_hint = r;
-            return true;
+            return single_mask;
         }
     }
-    return false;
+    return 0;
 }
 
 /* Indicating a naked single hint is done by changing the
@@ -368,7 +354,7 @@ static void set_naked_single_hint_desc_for_cell( int row, int col, bool *symbols
         if ( symbols[ sn ] ) return;
 
         if ( trigger ) {
-            hint_desc_add_row_col_trigger( hdesc, row, col );
+            hint_desc_add_row_col_trigger( hdesc, row, col, REGULAR_TRIGGER );
         } else {
             hint_desc_set_row_col_selection( hdesc, row, col );
             hint_desc_add_row_col_hint( hdesc, row, col );
@@ -426,19 +412,22 @@ static bool look_for_naked_singles( hint_desc_t *hdesc )
 {
     for ( int col = 0; col < SUDOKU_N_COLS; col++ ) {
         for ( int row = 0; row < SUDOKU_N_ROWS; row++ ) {
-            sudoku_cell_t *current_cell = get_cell( row, col );
-            if ( 1 == current_cell->n_symbols ) {
-                int remove_mask = current_cell->symbol_map;
+            sudoku_cell_t *cell = get_cell( row, col );
+            if ( 1 == cell->n_symbols ) {
+                int remove_mask = cell->symbol_map;
 
                 int row_hint, col_hint;
-                if ( check_box_of( row, col, remove_mask, &row_hint, &col_hint ) ) {
-                    return set_naked_single_hint_desc( row_hint, col_hint, remove_mask, hdesc );
+                int single_mask = check_box_of( row, col, remove_mask, &row_hint, &col_hint );
+                if ( single_mask ) {
+                    return set_naked_single_hint_desc( row_hint, col_hint, single_mask, hdesc );
                 }
-                if ( check_col_of( row, col, remove_mask, &row_hint ) ) {
-                    return set_naked_single_hint_desc( row_hint, col, remove_mask, hdesc );
+                single_mask = check_col_of( row, col, remove_mask, &row_hint );
+                if ( single_mask ) {
+                    return set_naked_single_hint_desc( row_hint, col, single_mask, hdesc );
                 }
-                if ( check_row_of( row, col, remove_mask, &col_hint ) ) {
-                    return set_naked_single_hint_desc( row, col_hint, remove_mask, hdesc );
+                single_mask = check_row_of( row, col, remove_mask, &col_hint );
+                if ( single_mask ) {
+                    return set_naked_single_hint_desc( row, col_hint, single_mask, hdesc );
                 }
             }
         }
@@ -495,13 +484,7 @@ static int check_only_possible_symbols_in_set( locate_t by, int ref, cell_ref_t 
    hidden single symbol cell in the same column, row or box to
    have the hidden single symbol */
 
-static inline bool is_single_ref( cell_ref_t *cr )
-{
-    sudoku_cell_t *cell = get_cell( cr->row, cr->col );
-    return 1 == cell->n_symbols;
-}
-
-static void set_row_hint( int row, int col, int mask, hint_desc_t *hdesc )
+static void set_row_triggers( int row, int col, int mask, hint_desc_t *hdesc )
 {
     int box = get_surrounding_box( row, col );
     int other_boxes[2];
@@ -516,14 +499,14 @@ static void set_row_hint( int row, int col, int mask, hint_desc_t *hdesc )
 
             if ( ! checked &&           // avoid checking the same box again
                  get_single_in_set( LOCATE_BY_BOX, other_boxes[i], mask, &single ) ) {
-                hint_desc_add_cell_ref_trigger( hdesc, &single );
+                hint_desc_add_cell_ref_trigger( hdesc, &single, REGULAR_TRIGGER );
                 break;                  // no need for other trigger in the same box
             }
             checked = true;         // do not look in the box anymore
             if ( get_single_in_set( LOCATE_BY_COL, cr[j].col, mask, &single ) ) {
-                hint_desc_add_cell_ref_trigger( hdesc, &single );
+                hint_desc_add_cell_ref_trigger( hdesc, &single, REGULAR_TRIGGER );
             } else {                    // a 'weak' trigger?
-                hint_desc_add_cell_ref_weak_trigger( hdesc, &cr[j] );
+                hint_desc_add_cell_ref_trigger( hdesc, &cr[j], WEAK_TRIGGER | PENCIL );
             }                           // keep looking for other cells in intersection
         }
     }
@@ -533,14 +516,15 @@ static void set_row_hint( int row, int col, int mask, hint_desc_t *hdesc )
         if ( cr[j].col == col ) continue;
         if ( is_single_ref( &cr[j] ) ) continue; // no need for any trigger
         if ( get_single_in_set( LOCATE_BY_COL, cr[j].col, mask, &single ) ) {
-            hint_desc_add_cell_ref_trigger( hdesc, &single );
+            hint_desc_add_cell_ref_trigger( hdesc, &single, REGULAR_TRIGGER );
         } else {
-            hint_desc_add_cell_ref_weak_trigger( hdesc, &cr[j] );
+            hint_desc_add_cell_ref_trigger( hdesc, &cr[j], WEAK_TRIGGER | PENCIL );
         }
     }
 }
-//TODO: it should be possible to combine set_row_hint & set_col_hint into a single function
-static void set_col_hint( int col, int row, int mask, hint_desc_t *hdesc )
+
+//TODO: it should be possible to combine set_row_triggers & set_col_triggers into a single function
+static void set_col_triggers( int row, int col, int mask, hint_desc_t *hdesc )
 {
     int box = get_surrounding_box( row, col );
     int other_boxes[2];
@@ -555,14 +539,14 @@ static void set_col_hint( int col, int row, int mask, hint_desc_t *hdesc )
 
             if ( ! checked &&           // skip checking the same box again
                  get_single_in_set( LOCATE_BY_BOX, other_boxes[i], mask, &single ) ) {
-                hint_desc_add_cell_ref_trigger( hdesc, &single );
+                hint_desc_add_cell_ref_trigger( hdesc, &single, REGULAR_TRIGGER );
                 break;                  // no need for other trigger in the same box
             }
             checked = true;             // do not look in the same box anymore
             if ( get_single_in_set( LOCATE_BY_ROW, cr[j].row, mask, &single ) ) {
-                hint_desc_add_cell_ref_trigger( hdesc, &single );
+                hint_desc_add_cell_ref_trigger( hdesc, &single, REGULAR_TRIGGER );
             } else {                    // a 'weak' trigger?
-                hint_desc_add_cell_ref_weak_trigger( hdesc, &cr[j] );
+                hint_desc_add_cell_ref_trigger( hdesc, &cr[j], WEAK_TRIGGER | PENCIL );
             }                           // keep looking for other cells in intersection
         }
     }
@@ -572,9 +556,9 @@ static void set_col_hint( int col, int row, int mask, hint_desc_t *hdesc )
         if ( cr[j].row == row ) continue;
         if ( is_single_ref( &cr[j] ) ) continue; // no need for any trigger
         if ( get_single_in_set( LOCATE_BY_ROW, cr[j].row, mask, &single ) ) {
-            hint_desc_add_cell_ref_trigger( hdesc, &single );
+            hint_desc_add_cell_ref_trigger( hdesc, &single, REGULAR_TRIGGER );
         } else {
-            hint_desc_add_cell_ref_weak_trigger( hdesc, &cr[j] );
+            hint_desc_add_cell_ref_trigger( hdesc, &cr[j], WEAK_TRIGGER | PENCIL );
         }
     }
 }
@@ -633,7 +617,7 @@ static void fill_box_rows_cols( int box, int row_hint, int col_hint,
     *n_box_col = n_bc;
 }
 
-static void set_box_hint( int box, int row_hint, int col_hint, int mask, hint_desc_t *hdesc )
+static void set_box_triggers( int box, int row_hint, int col_hint, int mask, hint_desc_t *hdesc )
 {
     int first_row = 3 * ( box / 3 );
     int first_col = 3 * ( box % 3 );
@@ -707,26 +691,26 @@ static void set_box_hint( int box, int row_hint, int col_hint, int mask, hint_de
     for ( int i = 0; i < trow; ++i ) {
         if ( -1 == trigger_rows[i].trigger ) continue;
 //printf("Setting trigger (%d, %d)\n", trigger_rows[i].row, trigger_rows[i].trigger );
-        hint_desc_add_row_col_trigger( hdesc, trigger_rows[i].row, trigger_rows[i].trigger );
+        hint_desc_add_row_col_trigger( hdesc, trigger_rows[i].row, trigger_rows[i].trigger, REGULAR_TRIGGER );
     }
     for ( int j = 0; j < tcol; ++j ) {
         if ( -1 == trigger_cols[j].trigger ) continue;
 //printf("Setting trigger (%d, %d)\n", trigger_cols[j].trigger, trigger_cols[j].col );
-        hint_desc_add_row_col_trigger( hdesc, trigger_cols[j].trigger, trigger_cols[j].col );
+        hint_desc_add_row_col_trigger( hdesc, trigger_cols[j].trigger, trigger_cols[j].col, REGULAR_TRIGGER );
     }
 }
 
-static void set_hidden_single_hint( locate_t by, int set, cell_ref_t *cr, int mask, hint_desc_t *hdesc )
+static void set_hidden_single_triggers( locate_t by, int set, cell_ref_t *cr, int mask, hint_desc_t *hdesc )
 {
     switch ( by ) {
     case LOCATE_BY_ROW:
-        set_row_hint( set, cr->col, mask, hdesc );
+        set_row_triggers( set, cr->col, mask, hdesc );
         break;
     case LOCATE_BY_COL:
-        set_col_hint( set, cr->row, mask, hdesc );
+        set_col_triggers( cr->row, set, mask, hdesc );
         break;
     case LOCATE_BY_BOX:
-        set_box_hint( set, cr->row, cr->col, mask, hdesc );
+        set_box_triggers( set, cr->row, cr->col, mask, hdesc );
         break;
     }
 }
@@ -738,8 +722,9 @@ static bool look_for_hidden_singles( hint_desc_t *hdesc )
             cell_ref_t candidate;
             int mask = check_only_possible_symbols_in_set( (locate_t)by, set, &candidate );
             if ( -1 != mask ) {
-                set_hidden_single_hint( by, set, &candidate, mask, hdesc );
+                set_hidden_single_triggers( by, set, &candidate, mask, hdesc );
 
+                hint_desc_add_cell_ref_hint( hdesc, &candidate );
                 hdesc->selection = candidate;
                 hdesc->hint_type = HIDDEN_SINGLE;
                 hdesc->action = SET;
@@ -929,6 +914,7 @@ static void fill_in_box_triggers( int first_row, int first_col,
                 if ( 1 == cell->n_symbols ) continue;
 
                 hdesc->triggers[n_triggers] = singles[i];
+                hdesc->flavors[n_triggers] = REGULAR_TRIGGER;
                 ++n_triggers;
                 break;
             }
@@ -946,6 +932,7 @@ static void fill_in_box_triggers( int first_row, int first_col,
                 if ( 1 == cell->n_symbols ) continue;
 
                 hdesc->triggers[n_triggers] = singles[i];
+                hdesc->flavors[n_triggers] = REGULAR_TRIGGER;
                 ++n_triggers;
                 break;
             }
@@ -963,12 +950,13 @@ static void fill_in_box_row_triggers( int box, int row, cell_ref_t *singles, int
     get_other_boxes_in_same_box_row( box, boxes );  // get 2 other horizontally aligned boxes
     boxes[2] = box;                                 // last box is the hint box
 
-    int n_triggers = 0, n_weak_triggers = 0;
+    int n_triggers = 0;
     for ( int i = 0; i < 2; ++i ) {                 // first, triggers inside box (i is box index)
         cell_ref_t *single = get_single_in_box( singles, n_singles, boxes[i] );
         if ( NULL == single ) continue;
 
         hdesc->triggers[n_triggers] = *single;
+        hdesc->flavors[n_triggers] = REGULAR_TRIGGER;
         ++n_triggers;
         required_in_box[i] = false;                 // no more trigger for this box
     }
@@ -985,6 +973,7 @@ static void fill_in_box_row_triggers( int box, int row, cell_ref_t *singles, int
             cell_ref_t *single = get_single_in_col( singles, n_singles, c );
             if ( single ) {
                 hdesc->triggers[n_triggers] = *single;
+                hdesc->flavors[n_triggers] = REGULAR_TRIGGER;
                 ++n_triggers;
             } else {
                 int required = true;                // by default a weak trigger is required
@@ -997,14 +986,14 @@ static void fill_in_box_row_triggers( int box, int row, cell_ref_t *singles, int
                     }
                 }
                 if ( required ) {
-                    hdesc->weak_triggers[n_weak_triggers].row = row;
-                    hdesc->weak_triggers[n_weak_triggers].col = c;
-                    ++n_weak_triggers;
+                    hdesc->triggers[n_triggers].row = row;
+                    hdesc->triggers[n_triggers].col = c;
+                    hdesc->flavors[n_triggers] = WEAK_TRIGGER | PENCIL;
+                    ++n_triggers;
                 }
             }
         }
     }
-    hdesc->n_weak_triggers = n_weak_triggers;
     hdesc->n_triggers = n_triggers;
 }
 
@@ -1171,13 +1160,14 @@ static void fill_in_box_col_triggers( int box, int col, cell_ref_t *singles, int
     get_other_boxes_in_same_box_col( box, boxes );  // get 2 other vertically aligned boxes first
     boxes[2] = box;                                 // last box is the hint box
 
-    int n_triggers = 0, n_weak_triggers = 0;
+    int n_triggers = 0;
 
     for ( int i = 0; i < 2; ++i ) {                 // i is the box index
         cell_ref_t *single = get_single_in_box( singles, n_singles, boxes[i] );
         if ( NULL == single ) continue;
 
         hdesc->triggers[n_triggers] = *single;
+        hdesc->flavors[n_triggers] = REGULAR_TRIGGER;
         ++n_triggers;
         required_in_box[i] = false;
     }
@@ -1194,6 +1184,7 @@ static void fill_in_box_col_triggers( int box, int col, cell_ref_t *singles, int
             cell_ref_t *single = get_single_in_row( singles, n_singles, r );
             if ( single ) {
                 hdesc->triggers[n_triggers] = *single;
+                hdesc->flavors[n_triggers] = REGULAR_TRIGGER;
                 ++n_triggers;
             } else {
                 int required = true;                // by default a weak trigger is required
@@ -1206,14 +1197,14 @@ static void fill_in_box_col_triggers( int box, int col, cell_ref_t *singles, int
                     }
                 }
                 if ( required ) {
-                    hdesc->weak_triggers[n_weak_triggers].row = r;
-                    hdesc->weak_triggers[n_weak_triggers].col = col;
-                    ++n_weak_triggers;
+                    hdesc->triggers[n_triggers].row = r;
+                    hdesc->triggers[n_triggers].col = col;
+                    hdesc->flavors[n_triggers] = WEAK_TRIGGER | PENCIL;
+                    ++n_triggers;
                 }
             }
         }
     }
-    hdesc->n_weak_triggers = n_weak_triggers;
     hdesc->n_triggers = n_triggers;
 }
 
@@ -1517,34 +1508,28 @@ static int check_pairs( locate_t by, int ref, int n_symbols, int *symbols, hint_
         if ( 0 == n_partial && 2 == n_included ) {
             // either hidden pair to cleanup or already processed pair
             if ( crs[0].n_extra || crs[1].n_extra ) { // hidden pair to cleanup
-//                reset_hint_cache( ); // set hidden pairs
                 hint_desc_init( hdesc );   // new hints are coming, re-init hdesc
                 hdesc->hint_type = HIDDEN_SUBSET;
                 hdesc->action = SET;
                 hdesc->n_symbols = 2;
                 hdesc->symbol_map = symbol_map;
                 hdesc->hint_pencil = true;
-                hdesc->trigger_pencil = true;
 
                 if ( crs[0].n_extra ) {
-//                    cache_hint_cell( crs[0].row, crs[0].col, HINT_REGION | PENCIL );
-//                    *selection_row = crs[0].row;
-//                    *selection_col = crs[0].col;
                     hdesc->hints[hdesc->n_hints++] = crs[0].cr;
                     hdesc->selection = crs[0].cr;
                 } else { 
-//                    cache_hint_cell( crs[0].row, crs[0].col, TRIGGER_REGION | PENCIL );
-                    hdesc->triggers[hdesc->n_triggers++] = crs[0].cr;
+                    hdesc->triggers[hdesc->n_triggers] = crs[0].cr;
+                    hdesc->flavors[hdesc->n_triggers] = REGULAR_TRIGGER | PENCIL;
+                    ++hdesc->n_triggers;
                 }
                 if ( crs[1].n_extra ) { // if both, selection will be on the 2nd one.
-//                    cache_hint_cell( crs[1].row, crs[1].col, HINT_REGION | PENCIL );
-//                    *selection_row = crs[1].row;
-//                    *selection_col = crs[1].col;
                     hdesc->hints[hdesc->n_hints++] = crs[1].cr;
                     hdesc->selection = crs[1].cr;
                 } else {
-//                    cache_hint_cell( crs[1].row, crs[1].col, TRIGGER_REGION | PENCIL );
-                    hdesc->triggers[hdesc->n_triggers++] = crs[1].cr;
+                    hdesc->triggers[hdesc->n_triggers] = crs[1].cr;
+                    hdesc->flavors[hdesc->n_triggers] = REGULAR_TRIGGER | PENCIL;
+                    ++hdesc->n_triggers;
                 }
                 return 0;       // return hidden pair to cleanup (no new single)
             } // else already processed pair, ignore
@@ -1563,31 +1548,22 @@ static int check_pairs( locate_t by, int ref, int n_symbols, int *symbols, hint_
                 hdesc->n_symbols = 2;           // symbol map has 2 symbols but only 1 
                 hdesc->symbol_map = symbol_map; // of the 2 is to remove from each hint
                 hdesc->hint_pencil = true;
-                hdesc->trigger_pencil = true;
 
                 for ( int i = 0; i < n_partial; ++i ) { // symbols from naked pair should be removed
-//                   cache_hint_cell( prs[i].row, prs[i].col, HINT_REGION | PENCIL );
                     hdesc->hints[hdesc->n_hints++] = prs[i].cr;
-//printf( "Set to remove from %d,%d, n_hints %d\n", prs[i].cr.row, prs[i].cr.col, hdesc->n_hints );
                     if ( 1 == prs[i].n_extra ) {
-//                        *selection_row = prs[i].row; 
-//                        *selection_col = prs[i].col;
                         hdesc->selection = prs[i].cr;
                         res = 1;    // new single
                     }
                 }
                 for ( int i = 0; i < n_included; ++i ) {
                     if ( 0 == crs[i].n_extra ) {    // the naked pair cells are trigger
-//                        cache_hint_cell( crs[i].row, crs[i].col, TRIGGER_REGION | PENCIL );
-//printf( "Set naked %d,%d n_triggers %d\n", crs[i].cr.row, crs[i].cr.col, hdesc->n_triggers );
-                        hdesc->triggers[hdesc->n_triggers++] = crs[i].cr;
+                        hdesc->triggers[hdesc->n_triggers] = crs[i].cr;
+                        hdesc->flavors[hdesc->n_triggers] = REGULAR_TRIGGER | PENCIL;
+                        ++hdesc->n_triggers;
                     } else {                        // symbols from naked pair should be removed
-//                        cache_hint_cell( crs[i].row, crs[i].col, HINT_REGION | PENCIL );
-//printf( "Set to remove from %d,%d n_hints %d\n", crs[i].cr.row, crs[i].cr.col, hdesc->n_hints );
                         hdesc->hints[hdesc->n_hints++] = crs[i].cr;
                         if ( 1 == crs[i].n_extra ) {
-//                            *selection_row = crs[i].row; 
-//                            *selection_col = crs[i].col;
                             hdesc->selection = crs[i].cr;
                             res = 1;    // new single
                         }
@@ -1691,64 +1667,50 @@ static int check_triplets( locate_t by, int ref, int n_symbols, int *symbols, hi
                     hdesc->n_symbols = 3;
                     hdesc->symbol_map = max_map;
                     hdesc->hint_pencil = true;
-                    hdesc->trigger_pencil = true;
-//                    cache_hint_cell( crs[0].row, crs[0].col, HINT_REGION | PENCIL );
-//                    cache_hint_cell( crs[1].row, crs[1].col, HINT_REGION | PENCIL );
-//                    cache_hint_cell( crs[2].row, crs[2].col, HINT_REGION | PENCIL );
+
                     if ( crs[0].n_extra ) {
-//                        *selection_row = crs[0].row;
-//                        *selection_col = crs[0].col;
                         hdesc->hints[hdesc->n_hints++] = crs[0].cr;
                         hdesc->selection = crs[0].cr;
                     } else { 
-//                    cache_hint_cell( crs[0].row, crs[0].col, TRIGGER_REGION | PENCIL );
-                        hdesc->triggers[hdesc->n_triggers++] = crs[0].cr;
+                        hdesc->triggers[hdesc->n_triggers] = crs[0].cr;
+                        hdesc->flavors[hdesc->n_triggers] = REGULAR_TRIGGER | PENCIL;
+                        ++hdesc->n_triggers;
                     }
                     if ( crs[1].n_extra ) {
-//                        *selection_row = crs[1].row;
-//                        *selection_col = crs[1].col;
                         hdesc->hints[hdesc->n_hints++] = crs[1].cr;
                         hdesc->selection = crs[1].cr;
                     } else {
-//                    cache_hint_cell( crs[0].row, crs[0].col, TRIGGER_REGION | PENCIL );
-                        hdesc->triggers[hdesc->n_triggers++] = crs[1].cr;
+                        hdesc->triggers[hdesc->n_triggers] = crs[1].cr;
+                        hdesc->flavors[hdesc->n_triggers] = REGULAR_TRIGGER | PENCIL;
+                        ++hdesc->n_triggers;
                     }
                     if ( crs[2].n_extra ) {
-//                        *selection_row = crs[2].row;
-//                        *selection_col = crs[2].col;
                         hdesc->hints[hdesc->n_hints++] = crs[2].cr;
                         hdesc->selection = crs[2].cr;
                     } else {
-//                    cache_hint_cell( crs[0].row, crs[0].col, TRIGGER_REGION | PENCIL );
-                        hdesc->triggers[hdesc->n_triggers++] = crs[2].cr;
+                        hdesc->triggers[hdesc->n_triggers] = crs[2].cr;
+                        hdesc->flavors[hdesc->n_triggers] = REGULAR_TRIGGER | PENCIL;
+                        ++hdesc->n_triggers;
                     }
                     return 0;       // return hidden triplet to cleanup
                 } // else already processed naked triplet, ignore
 
             } else if ( 0 == crs[0].n_extra && 0 == crs[1].n_extra && 0 == crs[2].n_extra ) {
                 // naked triplet and cells with same symbols: it reduces symbols in partial cells
-//                reset_hint_cache( );
                 hint_desc_init( hdesc );   // new hints are coming, re-init hdesc
                 hdesc->hint_type = NAKED_SUBSET;
                 hdesc->action = REMOVE;
                 hdesc->n_symbols = 3;
                 hdesc->symbol_map = max_map;
                 hdesc->hint_pencil = true;
-                hdesc->trigger_pencil = true;
 
-//                cache_hint_cell( crs[0].row, crs[0].col, TRIGGER_REGION | PENCIL );
-//                cache_hint_cell( crs[1].row, crs[1].col, TRIGGER_REGION | PENCIL );
-//                cache_hint_cell( crs[2].row, crs[2].col, TRIGGER_REGION | PENCIL );
                 hdesc->hints[hdesc->n_hints++] = crs[0].cr;
                 hdesc->hints[hdesc->n_hints++] = crs[1].cr;
                 hdesc->hints[hdesc->n_hints++] = crs[2].cr;
                 int res = 0;
                 for ( int i = 0; i < n_partial; ++i ) {
-//                    cache_hint_cell( prs[i].row, prs[i].col, HINT_REGION | PENCIL );
                     hdesc->hints[hdesc->n_hints++] = prs[i].cr;
                     if ( 1 == prs[i].n_extra ) {
-//                        *selection_row = prs[i].row; 
-//                        *selection_col = prs[i].col;
                         hdesc->selection = prs[i].cr;
                         res = 1;
                     }
@@ -1843,7 +1805,6 @@ static int set_X_wings_n_fish_hints( locate_t by, int symbol_mask, int n_refs, i
                 if ( ! hint ) {
                     hint_desc_init( hdesc );   // new hints are coming, re-init hdesc( );
                     hdesc->hint_pencil = true;
-                    hdesc->trigger_pencil = true;
                     hdesc->action = REMOVE;
                     hdesc->n_symbols = 1;
                     hdesc->symbol_map = symbol_mask;
@@ -1865,7 +1826,9 @@ static int set_X_wings_n_fish_hints( locate_t by, int symbol_mask, int n_refs, i
                 sudoku_cell_t *cell = get_cell( cr.row, cr.col );
 
                 if ( cell->n_symbols > 1 && ( cell->symbol_map & symbol_mask ) ) {
-                    hdesc->triggers[hdesc->n_triggers++] = cr;
+                    hdesc->triggers[hdesc->n_triggers] = cr;
+                    hdesc->flavors[hdesc->n_triggers] = REGULAR_TRIGGER | PENCIL;
+                    ++hdesc->n_triggers;
                 }
             }
         }
@@ -1984,18 +1947,6 @@ static int check_X_wings_Swordfish( hint_desc_t *hdesc )
 /* 6. Look for XY wings. This must be done after looking
       for naked singles in order to benefit from the pencil clean up. */
 
-typedef enum {
-    NO_XY_WING, XY_WING_2_HORIZONTAL_BOXES, XY_WING_2_VERTICAL_BOXES, XY_WING_3_BOXES
-} xy_wing_type;
-
-typedef struct {
-    xy_wing_type    xyw_type;
-    int             symbol_mask;
-    int             n_hints;
-    cell_ref_t      hints[5];       // at least 1 cell (3 boxes), at most 5 cells (2 boxes)
-    cell_ref_t      triggers[3];    // always 3 cells
-} xy_wing_hints_t;
-
 static int get_common_symbol_mask( cell_ref_t *c0, cell_ref_t *c1 )
 {
     sudoku_cell_t *cell_1 = get_cell( c0->row, c0->col );
@@ -2003,154 +1954,197 @@ static int get_common_symbol_mask( cell_ref_t *c0, cell_ref_t *c1 )
     return cell_1->symbol_map & cell_2->symbol_map;
 }
 
-static bool set_2_box_horizontal_hints( int b0_col, int b1_col, int c0_row, int c0_col,
-                                        int c1_row, xy_wing_hints_t *xywh )
+typedef enum {
+    NO_XY_WING, XY_WING_2_HORIZONTAL_BOXES, XY_WING_2_VERTICAL_BOXES, XY_WING_3_BOXES
+} xy_wing_geometry;
+
+static xy_wing_geometry set_2_box_horizontal_hints( int b0_col, int b1_col, int c0_row, int c0_col,
+                                                    int c1_row, hint_desc_t *hdesc )
 {
+    bool single = false;
     int n_hints = 0;
     for ( int c = b1_col; c < b1_col + 3; ++c ) {
-        xywh->hints[n_hints].row = c1_row;
-        xywh->hints[n_hints].col = c;
-        ++n_hints;
+        sudoku_cell_t *cell = get_cell( c1_row, c );
+        if ( 1 < cell->n_symbols && ( hdesc->symbol_map & cell->symbol_map ) ) {
+            hdesc->hints[n_hints].row = c1_row;
+            hdesc->hints[n_hints].col = c;
+            if ( ! single && 2 == cell->n_symbols ) {
+                hdesc->selection = hdesc->hints[n_hints];
+                single = true;
+            }
+            ++n_hints;
+        }
     }
     for ( int c = b0_col; c < b0_col + 3; ++c ) {
         if ( c == c0_col ) continue;
-        xywh->hints[n_hints].row = c0_row;
-        xywh->hints[n_hints].col = c;
-        ++n_hints;
+
+        sudoku_cell_t *cell = get_cell( c0_row, c );
+        if ( 1 < cell->n_symbols && ( hdesc->symbol_map & cell->symbol_map ) ) {
+            hdesc->hints[n_hints].row = c0_row;
+            hdesc->hints[n_hints].col = c;
+            if ( ! single && 2 == cell->n_symbols ) {
+                hdesc->selection = hdesc->hints[n_hints];
+                single = true;
+            }
+            ++n_hints;
+        }
     }
-    return true;
+    hdesc->n_hints = n_hints;
+    if ( n_hints ) {
+        hdesc->n_triggers = 3;
+        return XY_WING_2_HORIZONTAL_BOXES;
+    }
+    return NO_XY_WING;
 }
 
-static bool set_2_box_vertical_hints( int b0_row, int b1_row, int c0_row, int c0_col,
-                                      int c1_col, xy_wing_hints_t *xywh )
+static xy_wing_geometry set_2_box_vertical_hints( int b0_row, int b1_row, int c0_row, int c0_col,
+                                                  int c1_col, hint_desc_t *hdesc )
 {
+    bool single = false;
     int n_hints = 0;
     for ( int r = b1_row; r < b1_row + 3; ++r ) {
-        xywh->hints[n_hints].row = r;
-        xywh->hints[n_hints].col = c1_col;
-        ++n_hints;
+        sudoku_cell_t *cell = get_cell( r, c1_col );
+        if ( 1 < cell->n_symbols && ( hdesc->symbol_map & cell->symbol_map ) ) {
+            hdesc->hints[n_hints].row = r;
+            hdesc->hints[n_hints].col = c1_col;
+            if ( ! single && 2 == cell->n_symbols ) {
+                hdesc->selection = hdesc->hints[n_hints];
+                single = true;
+            }
+            ++n_hints;
+        }
     }
     for ( int r = b0_row; r < b0_row + 3; ++r ) {
         if ( r == c0_row ) continue;
-        xywh->hints[n_hints].row = r;
-        xywh->hints[n_hints].col = c0_col;
-        ++n_hints;
+
+        sudoku_cell_t *cell = get_cell( r, c0_col );
+        if ( 1 < cell->n_symbols && ( hdesc->symbol_map & cell->symbol_map ) ) {
+            hdesc->hints[n_hints].row = r;
+            hdesc->hints[n_hints].col = c0_col;
+            if ( ! single && 2 == cell->n_symbols ) {
+                hdesc->selection = hdesc->hints[n_hints];
+                single = true;
+            }
+            ++n_hints;
+        }
     }
-    return true;
+    hdesc->n_hints = n_hints;
+    if ( n_hints ) {
+        hdesc->n_triggers = 3;
+        return XY_WING_2_VERTICAL_BOXES;
+    }
+    return NO_XY_WING;
 }
 
-static bool check_2_box_geometry( int box0, int box1, // box0 has 2 cells, box1 only 1
-                                  cell_ref_t *b0_c0, cell_ref_t *b0_c1, cell_ref_t *b1_c2,
-                                  xy_wing_hints_t *xywh )
+static xy_wing_geometry check_2_box_geometry( int box0, int box1, // box0 has 2 cells, box1 only 1
+                                              cell_ref_t *b0_c0, cell_ref_t *b0_c1, cell_ref_t *b1_c2,
+                                              hint_desc_t *hdesc )
 {
     int b0_row = 3 * (box0 / 3), b1_row = 3 * (box1 / 3);   // first row of each box
     int b0_col = 3 * (box0 % 3), b1_col = 3 * (box1 % 3);   // first col of each box
     
-    xywh->n_hints = 5;
-    xywh->triggers[0] = *b0_c0;         // assume a positive outcome
-    xywh->triggers[1] = *b0_c1;
-    xywh->triggers[2] = *b1_c2;
+    hdesc->triggers[0] = *b0_c0;         // assume a positive outcome
+    hdesc->triggers[1] = *b0_c1;
+    hdesc->triggers[2] = *b1_c2;
+
+    hdesc->flavors[0] = REGULAR_TRIGGER | PENCIL;
+    hdesc->flavors[1] = REGULAR_TRIGGER | PENCIL;
+    hdesc->flavors[2] = REGULAR_TRIGGER | PENCIL;
 
     if ( b0_row == b1_row ) {           // boxes are horizontally aligned
-        if ( b0_c0->row == b0_c1->row ) return false;
+        if ( b0_c0->row == b0_c1->row ) return NO_XY_WING;
 
-        xywh->xyw_type = XY_WING_2_HORIZONTAL_BOXES;
         if ( b0_c0->row == b1_c2->row ) {
-            xywh->symbol_mask = get_common_symbol_mask( b0_c1, b1_c2 );
-            return set_2_box_horizontal_hints( b0_col, b1_col, b0_c0->row, b0_c0->col, b0_c1->row, xywh );
+            hdesc->symbol_map = get_common_symbol_mask( b0_c1, b1_c2 );
+            return set_2_box_horizontal_hints( b0_col, b1_col, b0_c0->row, b0_c0->col, b0_c1->row, hdesc );
 
         } else if ( b0_c1->row == b1_c2->row ) {
-            xywh->symbol_mask = get_common_symbol_mask( b0_c0, b1_c2 );
-            return set_2_box_horizontal_hints( b0_col, b1_col, b0_c1->row, b0_c1->col, b0_c0->row, xywh );
+            hdesc->symbol_map = get_common_symbol_mask( b0_c0, b1_c2 );
+            return set_2_box_horizontal_hints( b0_col, b1_col, b0_c1->row, b0_c1->col, b0_c0->row, hdesc );
         }
     } else if ( b0_col == b1_col ) {    // boxes are vertically aligned
-        if ( b0_c0->col == b0_c1->col ) return false;
+        if ( b0_c0->col == b0_c1->col ) return NO_XY_WING;
 
-        xywh->xyw_type = XY_WING_2_VERTICAL_BOXES;
         if ( b0_c0->col == b1_c2->col ) {
-            xywh->symbol_mask = get_common_symbol_mask( b0_c1, b1_c2 );
-            return set_2_box_vertical_hints( b0_row, b1_row, b0_c0->row, b0_c0->col, b0_c1->col, xywh );
+            hdesc->symbol_map = get_common_symbol_mask( b0_c1, b1_c2 );
+            return set_2_box_vertical_hints( b0_row, b1_row, b0_c0->row, b0_c0->col, b0_c1->col, hdesc );
 
         } else if ( b0_c1->col == b1_c2->col ) {
-            xywh->symbol_mask = get_common_symbol_mask( b0_c0, b1_c2 );
-            return set_2_box_vertical_hints( b0_row, b1_row, b0_c1->row, b0_c1->col, b0_c0->col, xywh );
+            hdesc->symbol_map = get_common_symbol_mask( b0_c0, b1_c2 );
+            return set_2_box_vertical_hints( b0_row, b1_row, b0_c1->row, b0_c1->col, b0_c0->col, hdesc );
         }
     }
-    return false;  // not a valid geometry
+    return NO_XY_WING;  // not a valid geometry
 }
 
-static bool check_3_box_geometry( cell_ref_t *pairs, xy_wing_hints_t *xywh )
+static xy_wing_geometry set_3_box_hints( cell_ref_t *pair_a, cell_ref_t *pair_b, hint_desc_t *hdesc )
 {
-    xywh->xyw_type = XY_WING_3_BOXES;
-    xywh->n_hints = 1;
-    xywh->triggers[0] = pairs[0];         // assume a positive outcome
-    xywh->triggers[1] = pairs[1];
-    xywh->triggers[2] = pairs[2];
+    hdesc->symbol_map = get_common_symbol_mask( pair_a, pair_b );
+    sudoku_cell_t *cell = get_cell( pair_a->row, pair_b->col );
+    if ( 1 < cell->n_symbols && ( hdesc->symbol_map & cell->symbol_map ) ) {
+        hdesc->hints[0].row = pair_a->row;              // hint row from pair_a
+        hdesc->hints[0].col = pair_b->col;              // hint col from pair_b
+
+        if ( 2 == cell->n_symbols ) hdesc->selection = hdesc->hints[0];
+
+        hdesc->n_hints = 1;
+        hdesc->n_triggers = 3;
+        return XY_WING_3_BOXES; 
+    }
+    return NO_XY_WING;
+}
+
+static xy_wing_geometry check_3_box_geometry( cell_ref_t *pairs, hint_desc_t *hdesc )
+{
+    hdesc->triggers[0] = pairs[0];         // assume a positive outcome
+    hdesc->triggers[1] = pairs[1];
+    hdesc->triggers[2] = pairs[2];
+
+    hdesc->flavors[0] = REGULAR_TRIGGER | PENCIL;
+    hdesc->flavors[1] = REGULAR_TRIGGER | PENCIL;
+    hdesc->flavors[2] = REGULAR_TRIGGER | PENCIL;
 
     if ( pairs[0].row == pairs[1].row ) {           // p0 & p1 are horizontally aligned:     p0-p1
         if ( pairs[2].col == pairs[0].col ) {           // p0 & p2 are vertically aligned:   p2-hint
-            xywh->symbol_mask = get_common_symbol_mask( &pairs[1], &pairs[2] );
-            xywh->hints[0].row = pairs[2].row;              // hint row from p2
-            xywh->hints[0].col = pairs[1].col;              // hint col from p1
-            return true;                                                                //   p0-p1
+            return set_3_box_hints( &pairs[2], &pairs[1], hdesc );  // hint p2->row, p1->col
         } else if ( pairs[2].col == pairs[1].col ) {    // p1 & p2 are vertically aligned: hint-p2
-            xywh->symbol_mask = get_common_symbol_mask( &pairs[0], &pairs[2] );
-            xywh->hints[0].row = pairs[2].row;              // hint row from p2
-            xywh->hints[0].col = pairs[0].col;              // hint col from p0
-            return true;
+            return set_3_box_hints( &pairs[2], &pairs[0], hdesc );  // hint p2->row, p0->col
         }
     } else if ( pairs[0].row == pairs[2].row ) {    // p0 & p2 are horizontally aligned:     p0-p2
         if ( pairs[1].col == pairs[0].col ) {           // p0 & p1 are vertically aligned:   p1-hint
-            xywh->symbol_mask = get_common_symbol_mask( &pairs[1], &pairs[2] );
-            xywh->hints[0].row = pairs[1].row;              // hint row from p1
-            xywh->hints[0].col = pairs[2].col;              // hint col from p2
-            return true;                                                                //   p0-p2
+            return set_3_box_hints( &pairs[1], &pairs[2], hdesc );  // hint p1->row, p2->col
         } else if ( pairs[1].col == pairs[2].col ) {    // p1 & p2 are vertically aligned: hint-p1
-            xywh->symbol_mask = get_common_symbol_mask( &pairs[0], &pairs[1] );
-            xywh->hints[0].row = pairs[1].row;              // hint row from p1
-            xywh->hints[0].col = pairs[0].col;              // hint col from p0
-            return true;
+            return set_3_box_hints( &pairs[1], &pairs[0], hdesc );  // hint p1->row, p0->col
         }
     } else if ( pairs[1].row == pairs[2].row ) {    // p1 & p2 are horizontally aligned:     p1-p2
         if ( pairs[0].col == pairs[1].col ) {           // p0 & p1 are vertically aligned:   p0-hint
-            xywh->symbol_mask = get_common_symbol_mask( &pairs[0], &pairs[2] );
-            xywh->hints[0].row = pairs[0].row;              // hint row from p0
-            xywh->hints[0].col = pairs[2].col;              // hint col from p2
-            return true;                                                                //   p1-p2
+            return set_3_box_hints( &pairs[0], &pairs[2], hdesc );  // hint p0->row, p2->col
         } else if ( pairs[0].col == pairs[2].col ) {    // p0 & p2 are vertically aligned: hint-p0
-            xywh->symbol_mask = get_common_symbol_mask( &pairs[0], &pairs[1] );
-            xywh->hints[0].row = pairs[0].row;              // hint row from p0
-            xywh->hints[0].col = pairs[1].col;              // hint col from p1
-            return true;
+            return set_3_box_hints( &pairs[0], &pairs[1], hdesc );  // hint p0->row, p1->col
         }
     }
-    return false;  // not a valid geometry
+    return NO_XY_WING;  // not a valid geometry
 }
 
-static inline int get_box_from_ref( cell_ref_t *ref )
+static xy_wing_geometry check_xy_wing_geometry( cell_ref_t *pairs, hint_desc_t *hdesc )
 {
-    return 3 * (ref->row / 3) + ( ref->col / 3);
-}
+    // check if the pairs are in 2 or 3 boxes and if their alignments are correct
 
-static bool check_xy_wing_geometry( cell_ref_t *pairs, xy_wing_hints_t *xywh )
-{
-    // check if the pairs are in 2 or 3 boxes and if the alignments are correct
-
-    int box0 = get_box_from_ref( &pairs[0] );
-    int box1 = get_box_from_ref( &pairs[1] );
-    int box2 = get_box_from_ref( &pairs[2] );
+    int box0 = get_cell_ref_box( &pairs[0] );
+    int box1 = get_cell_ref_box( &pairs[1] );
+    int box2 = get_cell_ref_box( &pairs[2] );
 
     if ( box0 == box1 ) {
-        if ( box0 == box2 ) return false;
-        return check_2_box_geometry( box0, box2, &pairs[0], &pairs[1], &pairs[2], xywh );
+        if ( box0 == box2 ) return NO_XY_WING;
+        return check_2_box_geometry( box0, box2, &pairs[0], &pairs[1], &pairs[2], hdesc );
 
     } else if ( box0 == box2 ) {
-        return check_2_box_geometry( box0, box1, &pairs[0], &pairs[2], &pairs[1], xywh );
+        return check_2_box_geometry( box0, box1, &pairs[0], &pairs[2], &pairs[1], hdesc );
 
     } else if ( box1 == box2 ) {
-        return check_2_box_geometry( box1, box0, &pairs[1], &pairs[2], &pairs[0], xywh );
+        return check_2_box_geometry( box1, box0, &pairs[1], &pairs[2], &pairs[0], hdesc );
     }
-    return check_3_box_geometry( pairs, xywh );
+    return check_3_box_geometry( pairs, hdesc );
 }
 
 static void get_pair_symbols( int map, int *s0_mask, int *s1_mask )
@@ -2173,22 +2167,22 @@ static void get_pair_symbols( int map, int *s0_mask, int *s1_mask )
     assert( 0 );
 }
 
-static bool get_3rd_matching_pair( int symbol_map, int n_pairs, cell_ref_t *pairs,
-                                   cell_ref_t *matching_pairs, xy_wing_hints_t *xywh )
+static xy_wing_geometry get_3rd_matching_pair( int symbol_map, int n_pairs, cell_ref_t *pairs,
+                                               cell_ref_t *matching_pairs, hint_desc_t *hdesc )
 {
     for ( int j = 0; j < n_pairs; ++ j ) {
         sudoku_cell_t *cell = get_cell( pairs[j].row, pairs[j].col );
         if ( cell->symbol_map == symbol_map ) {
             matching_pairs[2] = pairs[j];
-            if ( check_xy_wing_geometry( matching_pairs, xywh ) )
-                return true;
+            xy_wing_geometry geometry = check_xy_wing_geometry( matching_pairs, hdesc );
+            if ( NO_XY_WING != geometry ) return geometry;
         } // else try another 3rd pair
     }
-    return false;
+    return NO_XY_WING;
 }
 
-static bool search_for_xy_wing_matching_pairs( int n_pairs, cell_ref_t *pairs,
-                                               cell_ref_t *matching_pairs, xy_wing_hints_t *xywh )
+static xy_wing_geometry search_for_xy_wing_in_matching_pairs( int n_pairs, cell_ref_t *pairs,
+                                                              cell_ref_t *matching_pairs, hint_desc_t *hdesc )
 {
     sudoku_cell_t *cell_0 = get_cell( matching_pairs[0].row, matching_pairs[0].col );
     int symbol_map_0 = cell_0->symbol_map;                              // 2^s0 | 2^s1
@@ -2200,19 +2194,20 @@ static bool search_for_xy_wing_matching_pairs( int n_pairs, cell_ref_t *pairs,
         int map = cell_1->symbol_map;
         if ( map == symbol_map_0 ) continue;    // 2^s0 | 2^s1 : naked subset, try another pair
 
+        xy_wing_geometry geo;
         matching_pairs[1] = pairs[i];
         if ( map & s0_mask ) {                  // 2^s0 | 2^s2 (new symbol s2)
-            if ( get_3rd_matching_pair( s1_mask | (map & ~s0_mask), // 2^s1 | 2^s2 in remaining pairs
-                                        n_pairs - (i+1), &pairs[i+1], matching_pairs, xywh ) )
-                return true;
+            geo = get_3rd_matching_pair( s1_mask | (map & ~s0_mask), // 2^s1 | 2^s2 in remaining pairs
+                                         n_pairs - (i+1), &pairs[i+1], matching_pairs, hdesc );
+            if ( NO_XY_WING != geo ) return true;
 
         } else if ( map & s1_mask ) {           // 2^s1 | 2^s2 (new symbol s2)
-            if ( get_3rd_matching_pair( s0_mask | (map & ~s1_mask), // 2^s0 | 2^s2 in remaining pairs
-                                        n_pairs - (i+1), &pairs[i+1], matching_pairs, xywh ) )
-                return true;
-        } // else try another second pair
+            geo = get_3rd_matching_pair( s0_mask | (map & ~s1_mask), // 2^s0 | 2^s2 in remaining pairs
+                                         n_pairs - (i+1), &pairs[i+1], matching_pairs, hdesc );
+            if ( NO_XY_WING != geo ) return true;
+        } // else try another pair
     }
-    return false;
+    return NO_XY_WING;
 }
 
 static int get_symbol_pairs( cell_ref_t *refs )
@@ -2232,58 +2227,27 @@ static int get_symbol_pairs( cell_ref_t *refs )
     return n_refs;
 }
 
-static int set_xy_wing_hints( xy_wing_hints_t *xywh, int *selection_row, int *selection_col )
+static bool search_for_xy_wing( hint_desc_t *hdesc )
 {
-    /* check if hints are useful (at least 1 symbol can be removed from 1 cell)
-       or even better if one hint cell will become a single after the hint */
-    int n_candidates = 0;
-    bool single = false;
-    for ( int i = 0; i < xywh->n_hints; ++ i ) {
-        sudoku_cell_t *cell = get_cell( xywh->hints[i].row, xywh->hints[i].col );
-        if ( 1 < cell->n_symbols && ( xywh->symbol_mask & cell->symbol_map ) ) {
-            if ( 0 == n_candidates ) reset_hint_cache( );
-            ++n_candidates;
-            cache_hint_cell( xywh->hints[i].row, xywh->hints[i].col, HINT_REGION | PENCIL );
-            if ( 2 == cell->n_symbols && ! single) { // a first new single
-                *selection_row = xywh->hints[i].row;
-                *selection_col = xywh->hints[i].col;
-                single = true;
-            }
-        }
-    }
-    if ( n_candidates ) {
-        for ( int i = 0; i < 3; ++ i ) {
-            cache_hint_cell( xywh->triggers[i].row, xywh->triggers[i].col, TRIGGER_REGION | PENCIL );
-        }
-        return (single) ? 1 : 0;
-    }
-    return -1;
-}
-
-static int search_for_xy_wing( sudoku_hint_type *hint_type, int *selection_row, int *selection_col )
-{
-    *hint_type = NO_HINT;
     cell_ref_t pairs[ SUDOKU_N_SYMBOLS * SUDOKU_N_SYMBOLS ]; // must be less than the complete grid
     int n_pairs = get_symbol_pairs( pairs );
     if ( n_pairs < 3 ) return -1;
 
-    int potential = 0;
-    xy_wing_hints_t xywh;
-    cell_ref_t matching_pairs[3];
 
+    cell_ref_t matching_pairs[3];
     for ( int i = 0; i < n_pairs; ++i ) {
         matching_pairs[0] = pairs[i];
+        xy_wing_geometry geo = search_for_xy_wing_in_matching_pairs( n_pairs-(i+1), &pairs[i+1],
+                                                                     matching_pairs, hdesc );
+        if ( NO_XY_WING == geo ) continue;
 
-        if ( search_for_xy_wing_matching_pairs( n_pairs-(i+1), &pairs[i+1], matching_pairs, &xywh ) ) {
-            int res = set_xy_wing_hints( &xywh, selection_row, selection_col );
-            if ( -1 == res ) continue;
-            *hint_type = XY_WING;
-            if ( 1 == res ) return 1;
-            ++potential;
-        }
+        hdesc->hint_type = XY_WING;
+        hdesc->hint_pencil = true;
+        hdesc->action = REMOVE;
+        hdesc->n_symbols = 1;
+        return true;
     }
-    if ( potential ) return 0;
-    return -1;
+    return false;
 }
 
 /* 7. Look for single and multiple forbidding chains. This must be done after looking
@@ -2367,9 +2331,9 @@ typedef struct {
     int     row, col, polarity;
 } chain_link_t;
 
-static int locate_forbidden_candidates( chain_link_t *chain, int n_links,
-                                        int symbol_mask, cell_ref_t * hints,
-                                        int *selection_row, int *selection_col )
+static bool locate_forbidden_candidates( chain_link_t *chain, int n_links,
+                                         int symbol_mask, hint_desc_t *hdesc )
+//cell_ref_t * hints, int *selection_row, int *selection_col
 /* Based on reversed polarities inside a single chain:
     a cell at the intersection of row including one polarity and
                                   col including the other polarity is forbidden */
@@ -2378,7 +2342,6 @@ static int locate_forbidden_candidates( chain_link_t *chain, int n_links,
         int chain_offset /* in chain */, index /* in row or col */;
     } prows[ SUDOKU_N_ROWS], pcols[ SUDOKU_N_COLS ];
 
-    int n_hints = 0;
     int start = 0, end;
     while ( true ) {                            // 1 segment at a time
         end = n_links-1;
@@ -2411,18 +2374,19 @@ static int locate_forbidden_candidates( chain_link_t *chain, int n_links,
             }
         }
 
+        int n_hints = 0;
         for ( int i = 0; i < n_prows; ++i ) {   // make up candidates and check if they contain the symbol
             for ( int j = 0; j < n_pcols; ++j ) {
                 if ( chain[prows[i].chain_offset].polarity != chain[pcols[j].chain_offset].polarity ) {
                     sudoku_cell_t *cell = get_cell( prows[i].index, pcols[j].index );
                     if ( cell->n_symbols > 1 && ( symbol_mask & cell->symbol_map ) ) {
-                        hints[n_hints].row = prows[i].index;
-                        hints[n_hints].col = pcols[j].index;
+                        hdesc->hints[n_hints].row = prows[i].index;
+                        hdesc->hints[n_hints].col = pcols[j].index;
                         ++n_hints;
 
                         if ( 2 == cell->n_symbols ) {
-                            *selection_row = prows[i].index;
-                            *selection_col = pcols[j].index;
+                            hdesc->selection.row = prows[i].index;
+                            hdesc->selection.col = pcols[j].index;
                         }
                     }
                 }
@@ -2435,12 +2399,17 @@ static int locate_forbidden_candidates( chain_link_t *chain, int n_links,
             for ( int i = end + 1; i < n_links; ++ i ) {    // after, if any
                 chain[i].polarity = 0;
             }
-            break;                              // stop here since segment generated hints
+            hdesc->n_hints = n_hints;
+            hdesc->hint_pencil = true;
+            hdesc->symbol_map = symbol_mask;
+            hdesc->n_symbols = 1;
+            hdesc->action = REMOVE;   // TODO: change to the proper action
+            return true;                        // stop here since segment generated hints
         }
         start = end + 1;                        // else try next segment, till the end of chain
         if ( start == n_links ) break;
     }
-    return n_hints;
+    return false;
 }
 
 typedef struct {
@@ -2476,15 +2445,16 @@ static bool is_cell_in_chain( chain_link_t *chain, int beg, int end, int r, int 
     return false;
 }
 
-static int find_chain_exclusions( chain_link_t *chain, int symbol_mask,
-                                  int seg1_beg, int seg1_end, int seg2_beg, int seg2_end,
-                                  int *selection_row, int *selection_col,
-                                  cell_ref_t * hints, int n_hints )
+static bool find_chain_exclusions( chain_link_t *chain, int symbol_mask,
+                                   int seg1_beg, int seg1_end,
+                                   int seg2_beg, int seg2_end,
+                                   hint_desc_t *hdesc )
 {
     int polarity = 0;
     int excluded = -1;
     int prev_seg1, prev_seg2;
 
+    int n_hints = 0;
     for ( int seg1_index = seg1_beg; seg1_index <= seg1_end; ++ seg1_index ) {
         for ( int seg2_index = seg2_beg; seg2_index <= seg2_end; ++ seg2_index ) {
             // first loop to find any polarity clash
@@ -2505,15 +2475,15 @@ static int find_chain_exclusions( chain_link_t *chain, int symbol_mask,
             }
         }
         if ( -1 != excluded ) { // chain exclusion
-            *selection_row = chain[excluded].row;
-            *selection_col = chain[excluded].col;
+            hdesc->selection.row = chain[excluded].row;
+            hdesc->selection.col = chain[excluded].col;
 
             int end = ( excluded < seg2_beg ) ? seg1_end : seg2_end;
             int polarity = chain[excluded].polarity;
             for ( int k = excluded; k <= end; ++ k ) {
                 if ( chain[k].polarity != polarity ) continue;
-                hints[n_hints].row = chain[k].row;
-                hints[n_hints].col = chain[k].col;
+                hdesc->hints[n_hints + hdesc->n_hints].row = chain[k].row;
+                hdesc->hints[n_hints + hdesc->n_hints].col = chain[k].col;
                 ++n_hints;
             }
             break;
@@ -2530,23 +2500,26 @@ static int find_chain_exclusions( chain_link_t *chain, int symbol_mask,
                 if ( prev_seg2_polarity == chain[seg2_index].polarity ) continue;
 
                 sudoku_cell_t *cell;    // try and find cells with symbol at the intersection of rows/cols
-                if ( ! is_cell_in_chain( chain, seg1_beg, seg1_end, chain[seg1_index].row, chain[seg2_index].col ) &&
-                     ! is_cell_in_chain( chain, seg2_beg, seg2_end, chain[seg1_index].row, chain[seg2_index].col ) ) {
-               
+                if ( ! is_cell_in_chain( chain, seg1_beg, seg1_end,
+                                         chain[seg1_index].row, chain[seg2_index].col ) &&
+                     ! is_cell_in_chain( chain, seg2_beg, seg2_end,
+                                         chain[seg1_index].row, chain[seg2_index].col ) ) {
                     cell = get_cell( chain[seg1_index].row, chain[seg2_index].col );
                     if ( cell->symbol_map & symbol_mask ) {
-                        hints[n_hints].row = chain[seg1_index].row;
-                        hints[n_hints].col = chain[seg2_index].col;
+                        hdesc->hints[n_hints + hdesc->n_hints].row = chain[seg1_index].row;
+                        hdesc->hints[n_hints + hdesc->n_hints].col = chain[seg2_index].col;
                         ++n_hints;
                         continue;
                     }
                 }
-                if ( ! is_cell_in_chain( chain, seg1_beg, seg1_end, chain[seg2_index].row, chain[seg1_index].col ) &&
-                     ! is_cell_in_chain( chain, seg2_beg, seg2_end, chain[seg2_index].row, chain[seg1_index].col ) ) {
+                if ( ! is_cell_in_chain( chain, seg1_beg, seg1_end,
+                                         chain[seg2_index].row, chain[seg1_index].col ) &&
+                     ! is_cell_in_chain( chain, seg2_beg, seg2_end,
+                                         chain[seg2_index].row, chain[seg1_index].col ) ) {
                     cell = get_cell( chain[seg2_index].row, chain[seg1_index].col );
                     if ( cell->symbol_map & symbol_mask ) {
-                        hints[n_hints].row = chain[seg2_index].row;
-                        hints[n_hints].col = chain[seg1_index].col;
+                        hdesc->hints[n_hints + hdesc->n_hints].row = chain[seg2_index].row;
+                        hdesc->hints[n_hints + hdesc->n_hints].col = chain[seg1_index].col;
                         ++n_hints;
                     }
                 }
@@ -2560,22 +2533,26 @@ static int find_chain_exclusions( chain_link_t *chain, int symbol_mask,
             }
         }
     }
-    return n_hints;
+    hdesc->n_hints += n_hints;
+    return n_hints > 0;
 }
 
-static void hide_inactive_segments( chain_link_t *chain, chain_segment_t *segments, int n_segments )
+static bool hide_inactive_segments( chain_link_t *chain, chain_segment_t *segments, int n_segments )
 {
+    bool active = false;
     for ( int i = 0; i < n_segments; ++i ) {
-        if ( segments[i].active ) continue;
-
+        if ( segments[i].active ) {
+            active = true;
+            continue;
+        }
         for ( int j = segments[i].beg; j <= segments[i].end; ++ j ) {
              chain[j].polarity = 0;
         }
     }
+    return active;
 }
 
-static int process_weak_relations( chain_link_t *chain, int n_links, int symbol_mask, 
-                                   cell_ref_t * hints, int *selection_row, int *selection_col )
+static int process_weak_relations( chain_link_t *chain, int n_links, int symbol_mask, hint_desc_t *hdesc )
 /* Based on weak links between cells in 2 chains: If they are in the same col, row or box
    they cannot both contain the symbol, so their polarity must be taken as opposite.
    1. If a second cell in the first chain with the same polarity is also in a weak link with
@@ -2589,60 +2566,20 @@ static int process_weak_relations( chain_link_t *chain, int n_links, int symbol_
 {
     chain_segment_t segments[ SUDOKU_N_ROWS * SUDOKU_N_COLS ];
     int n_segments = get_chain_segments( chain, n_links, segments );
-    int n_hints = 0;
 
     for ( int i = 0; i < n_segments-1; ++ i ) {   // find weak links beween 2 segments
         for ( int j = i+1; j < n_segments; ++ j ) {
-            int prev_n_hints = n_hints;
-            n_hints = find_chain_exclusions( chain, symbol_mask,
-                                             segments[i].beg, segments[i].end,
-                                             segments[j].beg, segments[j].end,
-                                             selection_row, selection_col,
-                                             hints, n_hints );
-            printf("segment %d & %d: n_hints = %d\n", i, j, n_hints );
-            if ( prev_n_hints != n_hints ) {    // segments i & j provide some hints: make them active
+            if ( find_chain_exclusions( chain, symbol_mask,
+                                        segments[i].beg, segments[i].end,
+                                         segments[j].beg, segments[j].end,
+                                         hdesc ) ) {
+                // segments i & j provide some hints: make them active
                 printf( "Active segments %d, %d\n", i, j );
                 segments[i].active = segments[j].active = true;
             }
         }
     }
-    hide_inactive_segments( chain, segments, n_segments );
-    return n_hints;
-}
-
-static void setup_chain_hints_triggers( chain_link_t *chain, int n_links,
-                                        cell_ref_t * hints, int n_hints )
-{
-    for ( int i = 0; i < n_hints; ++i ) {
-        cache_hint_cell( hints[i].row, hints[i].col, HINT_REGION | PENCIL );
-    }
-    for ( int i = 0; i < n_links; ++i ) {
-        int chain_head = (  chain[i].head ) ? CHAIN_HEAD : 0;
-        if ( chain[i].polarity == 1 ) {
-            cache_hint_cell( chain[i].row, chain[i].col, chain_head | TRIGGER_REGION | PENCIL );
-        } else if ( chain[i].polarity == -1 ) {
-            cache_hint_cell( chain[i].row, chain[i].col, chain_head | ALTERNATE_TRIGGER_REGION | PENCIL );
-        }
-    }
-}
-
-static void print_chain( chain_link_t *chain, int n_links )
-{
-    for ( int i = 0; i < n_links; ++i ) {
-        if ( chain[i].head ) {
-            printf("%sHead: ", (i == 0) ? " " : "\n ");
-        } else {
-            printf("       ");
-        }
-        printf( "cell @row %d, col %d polarity %d\n", chain[i].row, chain[i].col, chain[i].polarity );
-    }
-}
-
-static void print_forbidden_candidates( int n_hints, cell_ref_t *hints )
-{
-    for ( int i = 0; i < n_hints; ++i ) {
-        printf( "Forbidden candidate @row %d, col %d\n", hints[i].row, hints[i].col );
-    }
+    return hide_inactive_segments( chain, segments, n_segments );
 }
 
 static int add_item_if_not_in_chain( chain_link_t *chain, int n_links,
@@ -2760,8 +2697,44 @@ static int recursively_append_2_chain( chain_link_t *chain, int n_links,
     return n_links;
 }
 
+static void print_chain( chain_link_t *chain, int n_links )
+{
+    for ( int i = 0; i < n_links; ++i ) {
+        if ( chain[i].head ) {
+            printf("%sHead: ", (i == 0) ? " " : "\n ");
+        } else {
+            printf("       ");
+        }
+        printf( "cell @row %d, col %d polarity %d\n", chain[i].row, chain[i].col, chain[i].polarity );
+    }
+}
 
-static int search_for_forbidding_chains( int *selection_row, int *selection_col )
+static void print_forbidden_candidates( hint_desc_t *hdesc )
+{
+    for ( int i = 0; i < hdesc->n_hints; ++i ) {
+        printf( "Forbidden candidate @row %d, col %d\n", hdesc->hints[i].row, hdesc->hints[i].col );
+    }
+}
+
+static void setup_chain_hints_triggers( chain_link_t *chain, int n_links, hint_desc_t *hdesc )
+{
+    hdesc->hint_type = CHAIN;
+    for ( int i = 0; i < n_links; ++i ) {
+        cell_attrb_t head = (  chain[i].head ) ? HEAD : 0;
+        if ( chain[i].polarity == 1 ) {
+            hdesc->triggers[hdesc->n_triggers].row = chain[i].row;
+            hdesc->triggers[hdesc->n_triggers].col = chain[i].col;
+            hdesc->flavors[hdesc->n_triggers] = head | REGULAR_TRIGGER | PENCIL;
+        } else if ( chain[i].polarity == -1 ) {
+            hdesc->triggers[hdesc->n_triggers].row = chain[i].row;
+            hdesc->triggers[hdesc->n_triggers].col = chain[i].col;
+            hdesc->flavors[hdesc->n_triggers] = head | ALTERNATE_TRIGGER | PENCIL;
+        }
+        ++hdesc->n_triggers;
+    }
+}
+
+static bool search_for_forbidding_chains( hint_desc_t *hdesc )
 {
     int candidate_map = get_candidate_map();
 
@@ -2802,96 +2775,47 @@ static int search_for_forbidding_chains( int *selection_row, int *selection_col 
         printf(">>> candidate %d:\n", candidate );
         print_chain( chain, n_links );
 
-        cell_ref_t hints[SUDOKU_N_ROWS*2 + SUDOKU_N_COLS*2 + SUDOKU_N_BOXES*2];
-        int n_hints = locate_forbidden_candidates( chain, n_links, 1 << candidate, hints,
-                                                   selection_row, selection_col );
-        if ( n_hints > 0 ) { 
-            printf("    %d direct hints:\n", n_hints );
-            print_forbidden_candidates( n_hints, hints );
-            setup_chain_hints_triggers( chain, n_links, hints, n_hints );
-            return 0;
+        if ( locate_forbidden_candidates( chain, n_links, 1 << candidate, hdesc ) ) {
+            printf("    %d direct hints:\n", hdesc->n_hints );
+            print_forbidden_candidates( hdesc );
+            setup_chain_hints_triggers( chain, n_links, hdesc );
+            return true;
         }
-        n_hints = process_weak_relations( chain, n_links, 1 << candidate, hints,
-                                          selection_row, selection_col );
-        if ( n_hints > 0 ) { 
-            printf("    %d weak relation hints:\n", n_hints );
-            print_forbidden_candidates( n_hints, hints );
-            setup_chain_hints_triggers( chain, n_links, hints, n_hints );
-            return 0;
+        if ( process_weak_relations( chain, n_links, 1 << candidate, hdesc ) ) { 
+            printf("    %d weak relation hints:\n", hdesc->n_hints );
+            print_forbidden_candidates( hdesc );
+            setup_chain_hints_triggers( chain, n_links, hdesc );
+            return true;
         }
     }
-    return -1;
+    return false;
 }
 
-static sudoku_hint_type cache_hint_cells( int *selection_row, int *selection_col )
+extern bool get_hint( hint_desc_t *hdp )
 {
-    reset_hint_cache( );
-
-    hint_desc_t hdesc;
-    hint_desc_init( &hdesc );
-
+    hint_desc_init( hdp );
     // 1. Search for a Naked Single - must be done first for removing single symbols from the pencils.
-    if ( look_for_naked_singles( &hdesc ) ) {
-        cache_hint_from_desc( &hdesc ); // to move in caller
-        *selection_row = hdesc.selection.row;
-        *selection_col = hdesc.selection.col;
-        return hdesc.hint_type;
-    }
-
+    if ( look_for_naked_singles( hdp ) ) return true;
     // 2. Search for a Hidden Single
-    if ( look_for_hidden_singles( &hdesc ) ) {
-        cache_hint_from_desc( &hdesc ); // to move in caller
-        *selection_row = hdesc.selection.row;
-        *selection_col = hdesc.selection.col;
-        return hdesc.hint_type;
-    }
-
-    int res;
-
+    if ( look_for_hidden_singles( hdp ) ) return true;
     // 3. Search for locked candidates
-    res = check_locked_candidates( &hdesc );
-    if ( 0 != res ) {
-        cache_hint_from_desc( &hdesc ); // to move in caller
-        *selection_row = hdesc.selection.row;
-        *selection_col = hdesc.selection.col;
-        return hdesc.hint_type;
-    }
-
+    if ( check_locked_candidates( hdp ) ) return true;
     // 4. Search for naked or hidden Subset
-    res = check_subsets( &hdesc );
-    if ( 0 != res ) {
-        cache_hint_from_desc( &hdesc ); // to move in caller
-        *selection_row = hdesc.selection.row;
-        *selection_col = hdesc.selection.col;
-        return hdesc.hint_type;
-    }
-
+    if ( check_subsets( hdp ) ) return true;
     // 5. Search for X-Wing, Swordfish and Jellyfish
-    res = check_X_wings_Swordfish( &hdesc );
-    if ( 0 != res ) {
-        cache_hint_from_desc( &hdesc ); // to move in caller
-        *selection_row = hdesc.selection.row;
-        *selection_col = hdesc.selection.col;
-        return hdesc.hint_type;
-    }
-#if 0
+    if ( check_X_wings_Swordfish( hdp ) ) return true;
     // 6. Search for XY-Wing
-    res = search_for_xy_wing( &hint_type, selection_row, selection_col );
-    if ( -1 != res ) {
-        return XY_WING;
-    }
-
+    if ( search_for_xy_wing( hdp ) ) return true;
     // 7. Search for forbidding chains
-    res = search_for_forbidding_chains( selection_row, selection_col );
-    if ( -1 != res ) {
-        return CHAIN;
-    }
+    if ( search_for_forbidding_chains( hdp ) ) return true;
 
-    if ( NO_HINT != hint_type ) {
-        return hint_type;
-    }
-#endif
-    return NO_HINT;
+    SUDOKU_ASSERT( NO_HINT == hdp->hint_type );
+    SUDOKU_ASSERT( 0 == hdp->n_hints );
+    SUDOKU_ASSERT( 0 == hdp->n_triggers );
+    SUDOKU_ASSERT( 0 == hdp->n_candidates );
+    SUDOKU_ASSERT( -1 == hdp->selection.row && -1 == hdp->selection.col );
+
+    return false;
 }
 
 extern sudoku_hint_type find_hint( int *selection_row, int *selection_col )
@@ -2900,13 +2824,14 @@ extern sudoku_hint_type find_hint( int *selection_row, int *selection_col )
 //print_grid_pencils();
 
     void *game = save_current_game_for_solving();
-    sudoku_hint_type hint = cache_hint_cells( selection_row, selection_col );
+    hint_desc_t hdesc;
+    bool hint = get_hint( &hdesc );
     restore_saved_game( game );
 
-//printf("Before calling write_cache_hints:\n");
-//print_grid_pencils();
-    write_cache_hints( );
-//printf("After calling write_cache_hints:\n");
-//print_grid_pencils();
-    return hint;
+    if ( hint ) {
+        *selection_row = hdesc.selection.row;
+        *selection_col = hdesc.selection.col;
+        set_cell_attributes_from_desc( &hdesc );
+    }
+    return hdesc.hint_type;
 }

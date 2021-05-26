@@ -583,14 +583,14 @@
    @param[in] cntxt  The graphic/UI context passed back an forth between UI front end and game backend
    @remark  This function is called at each modification that may impact the visual presentation.
 */
-typedef void (*redraw_fct_t)( void *cntxt );
+typedef void (*redraw_fct_t)( const void *cntxt );
 
 /** set window name
    @param[in] cntxt  The graphic/UI context passed back an forth between UI front end and game backend
    @param[in] name   The name to set for the main game window
    @remark  This function is called initially and when a new game is commited, generated or opened.
 */
-typedef void (*set_window_name_fct_t)( void *cntxt, const char *name );
+typedef void (*set_window_name_fct_t)( const void *cntxt, const char *name );
 
 /** sudoku_status_t
    Depending on the current action the game might desire to display some
@@ -605,7 +605,7 @@ typedef enum {
   SUDOKU_STATUS_BACK,               /**< Back to Mark #%d, value */
   SUDOKU_STATUS_CHECK,              /**< Possible/Impossible) */
   SUDOKU_STATUS_HINT,               /**< see @ref sudoku_hint_type */
-
+  SUDOKU_STATUS_OVER,               /**< Game over */
   SUDOKU_STATUS_NO_SOLUTION,        /**< No solution */
   SUDOKU_STATUS_ONE_SOLUTION_ONLY,  /**< Only ONE solution */
   SUDOKU_STATUS_SEVERAL_SOLUTIONS   /**< More than one solution */
@@ -643,11 +643,12 @@ typedef enum {
      - @ref SUDOKU_STATUS_BACK for indicating we are back to the previous mark (value is the mark level)
      - @ref SUDOKU_STATUS_CHECK for indicating whether the game is solvable (value is TRUE or FALSE)
      - @ref SUDOKU_STATUS_HINT for indicating a hint at the selection (value is the hint type)
+     - @ref SUDOKU_STATUS_OVER for indicating that the game is over
      - @ref SUDOKU_STATUS_NO_SOLUTION for indicating the current configuration has no solution when entering a game manually (no value).  In this case the game cannot be accepted.
      - @ref SUDOKU_STATUS_ONE_SOLUTION_ONLY for indicating the current configuration has a single solution when entering a game manually (no value). In this case the game can be accepted.
      - @ref SUDOKU_STATUS_SEVERAL_SOLUTIONS fo indicating the current configuration has more than one solution when entering a game manually (no value). In this case the game cannot be accepted.
 */
-typedef void (*set_status_fct_t)( void *cntxt, sudoku_status_t status, int value );
+typedef void (*set_status_fct_t)( const void *cntxt, sudoku_status_t status, int value );
 
 /** set_back_level_fct_t
    @param[in] cntxt   The graphic/UI context passed back an forth between UI front end and game backend
@@ -665,7 +666,7 @@ typedef void (*set_status_fct_t)( void *cntxt, sudoku_status_t status, int value
     back (greyed)  back to 1      back to 2      back to 1     back (greyed)
 @endverbatim
 */
-typedef void (*set_back_level_fct_t)( void *cntxt, int level );
+typedef void (*set_back_level_fct_t)( const void *cntxt, int level );
 
 /** sudoku_mode_t
     Game entering modes: actively giving symbols, cancelling the entry or committing the new game
@@ -688,7 +689,7 @@ typedef enum {
                       The actual text and language are left to the user interface
                       (see @ref enter_mode "Enter your own game").
 */
-typedef void (*set_enter_mode_fct_t)( void *cntxt, sudoku_mode_t mode );
+typedef void (*set_enter_mode_fct_t)( const void *cntxt, sudoku_mode_t mode );
 
 /** Top level menu index  */
 typedef enum {
@@ -705,14 +706,14 @@ typedef enum {
    @param[in] which   The menu index (see @ref sudoku_menu_t).
    @remark The whole menu corresponding to the passed index (which) must be enabled (selectable).
 */
-typedef void (*enable_menu_fct_t)( void *cntxt, sudoku_menu_t which );
+typedef void (*enable_menu_fct_t)( const void *cntxt, sudoku_menu_t which );
 
 /** disable_menu_fct_t
    @param[in] cntxt   The graphic/UI context passed back an forth between UI front end and game backend
    @param[in] which   The menu index (see @ref sudoku_menu_t).
    @remark The whole menu corresponding to the passed index (which) must be disabled (grayed).
 */
-typedef void (*disable_menu_fct_t)( void *cntxt, sudoku_menu_t which );
+typedef void (*disable_menu_fct_t)( const void *cntxt, sudoku_menu_t which );
 
 /** File menu items
 
@@ -774,7 +775,7 @@ typedef enum {
    @remark               Enable the menu item corresponding to the passed menu
                          (which_menu) and item in that menu (which_item).
 */
-typedef void (*enable_menu_item_fct_t)( void *cntxt,
+typedef void (*enable_menu_item_fct_t)( const void *cntxt,
                                         sudoku_menu_t which_menu, 
                                         int which_item );
 
@@ -787,7 +788,7 @@ typedef void (*enable_menu_item_fct_t)( void *cntxt,
    @remark               Disable the menu item corresponding to the passed menu
                          (which_menu) and item in that menu (which_item).
 */
-typedef void (*disable_menu_item_fct_t)( void *cntxt, 
+typedef void (*disable_menu_item_fct_t)( const void *cntxt, 
                                          sudoku_menu_t which_menu, 
                                          int which_item );
 
@@ -811,7 +812,7 @@ typedef struct {
     If the answer is Yes, then the user interface should call
     @ref sudoku_random_game before returning.
 */
-typedef void (*success_dialog_fct_t)( void *cntxt, sudoku_duration_t *dhms );
+typedef void (*success_dialog_fct_t)( const void *cntxt, sudoku_duration_t *dhms );
 
 /** @} */
 
@@ -820,7 +821,6 @@ typedef void (*success_dialog_fct_t)( void *cntxt, sudoku_duration_t *dhms );
    setup the game.
    @{
 */
-
 
 /** sudoku_ui_table_t
     function table provided by the UI front end */
@@ -839,21 +839,13 @@ typedef struct {
 } sudoku_ui_table_t;
 
 /** sudoku_game_init
-   @param[in] instance   The graphic/UI context passed back an forth between UI front
-                         end and game backend
-   @param[in] argc       The number of arguments in the following argv array
-   @param[in] argv       The argument array.
    @param[in] fcts       The interface function table.
-   @remark   This function initializes the game from the windowing system main funtion.
+   @remark   This function initializes the game backend and provides a set of callbacks.
+             The interface function table gives the front-end callbacks that the back-end
+             uses to drive the user interface.
              This must be called by the front end before creating the game window.
-             The argument instance indicates an opaque window structure or handle that
-             is always passed back when calling the window/graphic system. The arguments
-             argc and argv are the standard arguments to the main function. The interface
-             function table gives the front-end callbacks that the back-end uses to drive
-             the user interface.
 */
-extern int sudoku_game_init( void *instance, int argc, char **argv,
-                             sudoku_ui_table_t *fcts );
+extern void sudoku_game_init( const void *cntxt, sudoku_ui_table_t *fcts );
 
 /** @} */
 
@@ -914,17 +906,36 @@ extern bool sudoku_how_long_playing( sudoku_duration_t *duration );
    @{
 */
 
+/** sudoku_level_t
+    When a game is generated it difficulty level is evaluated. Currently, only 4 levels
+    are defined:
+
+        EASY can be solved with only naked or hidden singles.
+
+        SIMPLE with naked pairs, triplets etc.
+
+        MODERATE with locked candidates.
+
+        DIFFICULT with other hints or no hint.
+*/
+typedef enum { EASY = 1, SIMPLE, MODERATE, DIFFICULT } sudoku_level_t;
+
+#define SUDOKU_MIN_GAME_NUMBER 1     /**< Min game number in game selection */
+#define SUDOKU_MAX_GAME_NUMBER 10000 /**< Max game number in game selection */
+
 /** sudoku_random_game
    @param[in] cntxt         The graphic/UI context passed back an forth between UI front
                             end and game backend
-   @remark   This function should be called by the front end as result of selecting
-             the menu item File:New. It is the front-end responsibility to display first
-             a confirmation menu (see @ref warning_start_stop) if a game is already ongoing
+   @remark   This function should be called by the front end as result of selecting the
+             menu item File:New. It is the front-end responsibility to display first a
+             confirmation menu (see @ref warning_start_stop) if a game is already ongoing
              or a game is being entered (see @ref sudoku_is_game_on_going). The function
              generates a random number and initializes the corresponding game without
-             any user input.
+             any user input. The game difficulty level is returned. The game number is
+             always in the range [SUDOKU_MIN_GAME_NUMBER - SUDOKU_MAX_GAME_NUMBER], both
+             included.
 */
-extern void sudoku_random_game( void *cntxt  );
+extern sudoku_level_t sudoku_random_game( const void *cntxt  );
 
 /** sudoku_pick_game
    @param[in] cntxt         The graphic/UI context passed back an forth between UI front
@@ -936,9 +947,11 @@ extern void sudoku_random_game( void *cntxt  );
              or a game is being entered (see @ref sudoku_is_game_on_going). A small
              dialog box (see @ref pick_dialog "pick") allows entering the game number.
              That game number is passed to initialize a particular game. Note that the
-             number is expected to be in ascii string format.
+             number is expected to be in ascii string format. The game number must be
+             in the range [SUDOKU_MIN_GAME_NUMBER - SUDOKU_MAX_GAME_NUMBER]. As with
+             sudoku_random_game, the game difficulty level is returned.
 */
-extern void sudoku_pick_game(void *cntxt, const char *number_string );
+extern sudoku_level_t sudoku_pick_game( const void *cntxt, const char *number_string );
 
 /** sudoku_open_file
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -951,9 +964,9 @@ extern void sudoku_pick_game(void *cntxt, const char *number_string );
              that the front end use the file chooser dialog box from the supporting window
              manager in order to select a sudoku game that was previously saved. It is
              recommended that sudoku games use the default .sdk extension, but any file
-             name can be used.
+             name can be used. The game difficulty level is returned.
 */
-extern int sudoku_open_file( void *cntxt, const char *path );
+extern sudoku_level_t sudoku_open_file( const void *cntxt, const char *path );
 
 /** sudoku_toggle_entering_new_game
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -961,7 +974,7 @@ extern int sudoku_open_file( void *cntxt, const char *path );
    @remark   This function should be called by the front end as result of selecting
              the menu item Enter your game/Cancel this game (depending on the current
              state set by the backend with @ref set_enter_mode_fct_t). */
-extern void sudoku_toggle_entering_new_game( void *cntxt );
+extern void sudoku_toggle_entering_new_game( const void *cntxt );
 
 /** sudoku_commit_game
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -976,7 +989,7 @@ extern void sudoku_toggle_entering_new_game( void *cntxt );
              "Accept") allowing the used to accept or cancel that game. Once the user
 	         accepts the front-end should call this function.
 */
-extern void sudoku_commit_game( void *cntxt, const char *game_name );
+extern void sudoku_commit_game( const void *cntxt, const char *game_name );
 
 /** sudoku_save_file
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -988,7 +1001,7 @@ extern void sudoku_commit_game( void *cntxt, const char *game_name );
              manager in order to select a game name and its location. If the file exists
              it is overwriten.
 */
-extern int sudoku_save_file(  void *cntxt, const char *path );
+extern int sudoku_save_file( const void *cntxt, const char *path );
 
 /** sudoku_undo
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -996,7 +1009,7 @@ extern int sudoku_save_file(  void *cntxt, const char *path );
    @remark   This function should be called by the front end as a result of selecting
              the menu Edit:Undo. The function just undoes the last operation.
 */
-extern void sudoku_undo( void *cntxt );
+extern void sudoku_undo( const void *cntxt );
 
 
 /** sudoku_redo
@@ -1005,7 +1018,7 @@ extern void sudoku_undo( void *cntxt );
    @remark   This function should be called by the front end as a result of selecting
              the menu Edit:Redo. The function redoes what has just been undone.
 */
-extern void sudoku_redo( void *cntxt );
+extern void sudoku_redo( const void *cntxt );
 
 /** sudoku_erase_selection
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -1014,7 +1027,7 @@ extern void sudoku_redo( void *cntxt );
              the menu Edit:Erase. The function just erases the values at the current
              selection.
 */
-extern void sudoku_erase_selection( void *cntxt );
+extern void sudoku_erase_selection( const void *cntxt );
 
 /** sudoku_mark_state
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -1023,7 +1036,7 @@ extern void sudoku_erase_selection( void *cntxt );
              the menu Edit:Mark. The function just marks the current state in order
              to return quickly to it if needed (see @ref sudoku_back_to_mark).
 */
-extern void sudoku_mark_state( void *cntxt );
+extern void sudoku_mark_state( const void *cntxt );
 
 /** sudoku_back_to_mark
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -1036,7 +1049,7 @@ extern void sudoku_mark_state( void *cntxt );
              and it will not be possible to return to it (unless the same state is marked
              again).
 */
-extern void sudoku_back_to_mark( void *cntxt );
+extern void sudoku_back_to_mark( const void *cntxt );
 
 /** sudoku_check_from_current_position
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -1046,7 +1059,7 @@ extern void sudoku_back_to_mark( void *cntxt );
              from the current state. The solver takes in account all symbols already
              entered (including multiple symbols in a single square).
 */
-extern void sudoku_check_from_current_position( void *cntxt );
+extern void sudoku_check_from_current_position( const void *cntxt );
 
 /** sudoku_hint
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -1055,8 +1068,10 @@ extern void sudoku_check_from_current_position( void *cntxt );
             the menu Tools:Hint. The function just moves the selection to a square
             that can be found by simple logic (if any). Hint may fail if the grid is
             to difficult to solve by simple logic only (i.e. if it needs back tracking).
+            The hint type is returned, which may be NO_HINT or NO_SOLUTION if not valid
+            hint is found, or any valid hint type.
 */
-extern void sudoku_hint( void *cntxt );
+extern sudoku_hint_type sudoku_hint( const void *cntxt );
 
 /** sudoku_step
    @param[in] cntxt      The graphic/UI context passed back an forth between UI front
@@ -1065,7 +1080,7 @@ extern void sudoku_hint( void *cntxt );
             could be used for a demonstration, executing 1 step every few seconds, for
             example.
 */
-extern void sudoku_step( void *cntxt );
+extern void sudoku_step( const void *cntxt );
 
 /** sudoku_fill
    @param[in] cntxt       The graphic/UI context passed back an forth between UI front
@@ -1077,7 +1092,7 @@ extern void sudoku_step( void *cntxt );
             selected cell with all symbols. The argument no_conflict can be used to
             remove automatically the symbols that would create conflict otherwise.
 */
-extern void sudoku_fill( void *cntxt, bool no_conflict );
+extern void sudoku_fill( const void *cntxt, bool no_conflict );
 
 /** sudoku_fill_all
    @param[in] cntxt       The graphic/UI context passed back an forth between UI front
@@ -1092,7 +1107,7 @@ extern void sudoku_fill( void *cntxt, bool no_conflict );
             no_conflict is TRUE, then it may completley solve the game in extremely
             simple cases.
 */
-extern void sudoku_fill_all( void *cntxt, bool no_conflict );
+extern void sudoku_fill_all( const void *cntxt, bool no_conflict );
 
 /** sudoku_solve_from_current_position
    @param[in] cntxt       The graphic/UI context passed back an forth between UI front
@@ -1104,7 +1119,7 @@ extern void sudoku_fill_all( void *cntxt, bool no_conflict );
             is shown. It is still possible to undo the action and go back to solving
             the game by hand.
 */
-extern void sudoku_solve_from_current_position( void *cntxt );
+extern void sudoku_solve_from_current_position( const void *cntxt );
 
 /** sudoku_toggle_conflict_detection
    @param[in] cntxt       The graphic/UI context passed back an forth between UI front
@@ -1115,7 +1130,7 @@ extern void sudoku_solve_from_current_position( void *cntxt );
             detection in the game. It returns the previous state before toggling the
             state.
 */
-extern int sudoku_toggle_conflict_detection( void *cntxt );
+extern int sudoku_toggle_conflict_detection( const void *cntxt );
 
 /** sudoku_toggle_auto_checking
    @param[in] cntxt       The graphic/UI context passed back an forth between UI front
@@ -1127,7 +1142,7 @@ extern int sudoku_toggle_conflict_detection( void *cntxt );
             previous state before toggling the state. If the game is on this will force
             a redraw.
 */
-extern int sudoku_toggle_auto_checking( void *cntxt );
+extern int sudoku_toggle_auto_checking( const void *cntxt );
 
 /** sudoku_key_t
     Codes indicating how to move the current selection */
@@ -1153,7 +1168,7 @@ typedef enum {
                            the function @ref sudoku_erase_selection should be called
                            instead.
 */
-extern void sudoku_move_selection( void *cntxt, sudoku_key_t how );
+extern void sudoku_move_selection( const void *cntxt, sudoku_key_t how );
 
 /** sudoku_set_selection
    @param[in] cntxt        The graphic/UI context passed back an forth between UI front
@@ -1163,7 +1178,7 @@ extern void sudoku_move_selection( void *cntxt, sudoku_key_t how );
    @remark                 This is used by the user interface to inform the game that the
                            user selected a cell with a mouse click.
 */
-extern void sudoku_set_selection( void *cntxt, int row, int col );
+extern void sudoku_set_selection( const void *cntxt, int row, int col );
 
 #define SUDOKU_N_ROWS           9 /**< Rows are numbered from 0 to 8 */
 #define SUDOKU_N_COLS           9 /**< Columns are numbered from 0 to 8 */
@@ -1229,7 +1244,7 @@ typedef struct {
 /** sudoku_get_cell_definition
    @param[in]  row         row of the cell that is requested.
    @param[in]  col         column of the cell that is requested.
-   @param[out] cell        A pointer to a cell definition that the fuction should
+   @param[out] cell        A pointer to a cell definition that the function should
                            update if the call is successful.
    @remark                 This is used by the user interface code in order to get a
                            cell definition, given its row and column. If the row or
@@ -1288,7 +1303,7 @@ extern char sudoku_get_symbol( sudoku_cell_t *cell );
    'd', 'D' for Doing (solving) the game should call @ref sudoku_solve_from_current_position.
 
 */
-extern void sudoku_enter_symbol( void *cntxt, int symbol );
+extern void sudoku_enter_symbol( const void *cntxt, int symbol );
 
 /** @} */
 #endif /* __SUDOKU_H__ */

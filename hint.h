@@ -37,7 +37,10 @@ typedef struct {
 } hint_desc_t;
 
 extern bool get_hint( hint_desc_t *hdp );
+extern bool act_on_hint( hint_desc_t *hdesc );
 
+// return 0 if could not step, 1 if it did a step, 2 if the game is solved
+extern int solve_step( void );
 extern sudoku_hint_type find_hint( int *row_hint, int *col_hint );
 
 #endif /* __HINT_H__ */

@@ -94,7 +94,7 @@ typedef struct {
 
 static bool initialize_paths( game_cntxt_t *game_cx , char *command )
 {
-    /* find sudoku directory from the command */
+    /* find sudoku directory from the command line */
     printf("Command %s\n", command );
 
     size_t len;
@@ -138,9 +138,9 @@ static bool initialize_background_image( game_cntxt_t *game_cx )
         return false;
     }
 
-    printf("Background Image %p initialized\n", (void *)game_cx->image );
 	game_cx->image_width = cairo_image_surface_get_width( game_cx->image );
 	game_cx->image_height = cairo_image_surface_get_height( game_cx->image );
+    printf("Background Image initialized\n");
     return true;
 }
 
@@ -235,7 +235,7 @@ static int read_options( game_cntxt_t *game_cntxt )
     game_cntxt->show_headlines = temp_show_headlines;
 
     printf( "Sucessfully loaded options version %d:\n", version );
-    printf( "theme_id=%d, translucent_state=%d, remove_fill_state=%d, timed_game_state=%d, display_time_state=%d, show_headlines=%d\n", 
+    printf( " theme_id=%d\n translucent_state=%d\n remove_fill_state=%d\n timed_game_state=%d\n display_time_state=%d\n show_headlines=%d\n", 
             game_cntxt->theme_id, game_cntxt->translucent_state, game_cntxt->remove_fill_state,
             game_cntxt->timed_game_state, game_cntxt->display_time_state, game_cntxt->show_headlines );
 
@@ -972,13 +972,13 @@ static gint key_event( GtkWidget *widget, GdkEventKey *event, gpointer data )
 
 // ----- begin of ui functions (exported to sudoku thru function table)
 
-void ui_redraw_game( void *cntxt )
+void ui_redraw_game( const void *cntxt )
 {
     game_cntxt_t *game_cx = (game_cntxt_t *)cntxt;
     gtk_widget_queue_draw( game_cx->canvas );
 }
 
-static void ui_update_window_name( void *cntxt, const char *path )
+static void ui_update_window_name( const void *cntxt, const char *path )
 {
     game_cntxt_t *game_cntxt = (game_cntxt_t *)cntxt;
     const char *last_slash;
@@ -997,14 +997,8 @@ static void ui_update_window_name( void *cntxt, const char *path )
     strncpy( game_cntxt->wname, last_slash, SUDOKU_MAX_NAME_LEN );
     gtk_window_set_title( GTK_WINDOW(game_cntxt->window), last_slash );
 }
-/*
-char *get_window_name( void *cntxt )
-{
-  game_cntxt_t *game_cntxt = (game_cntxt_t *)cntxt;
-  return game_cntxt->wname;
-}
-*/
-void ui_set_status_line( void *cntxt, sudoku_status_t status, int value )
+
+void ui_set_status_line( const void *cntxt, sudoku_status_t status, int value )
 {
     game_cntxt_t *game_cx = (game_cntxt_t *)cntxt;
 
@@ -1016,7 +1010,7 @@ void ui_set_status_line( void *cntxt, sudoku_status_t status, int value )
       status_buffer[0] = '\0';
       break;
     case SUDOKU_STATUS_DUPLICATE:
-      strcpy( status_buffer, "Duplicate symbol");
+      strcpy( status_buffer, "Duplicate symbol" );
       break;
     case SUDOKU_STATUS_MARK:
       sprintf( status_buffer, "Mark #%d", value );
@@ -1025,7 +1019,7 @@ void ui_set_status_line( void *cntxt, sudoku_status_t status, int value )
       sprintf( status_buffer, "Back to Mark #%d", value );
       break;
     case SUDOKU_STATUS_CHECK:
-      sprintf( status_buffer, "%sossible", (value) ? "P": "Imp");
+      sprintf( status_buffer, "%sossible", (value) ? "P": "Imp" );
       break;
     case SUDOKU_STATUS_HINT:
       switch( (sudoku_hint_type)value ) {
@@ -1043,14 +1037,17 @@ void ui_set_status_line( void *cntxt, sudoku_status_t status, int value )
       case CHAIN:               strcpy( status_buffer, "Exclusion Chain"); break;
       }
       break;
+    case SUDOKU_STATUS_OVER:
+      strcpy( status_buffer, "Game over" );
+      break;
     case SUDOKU_STATUS_NO_SOLUTION:       /* printf("No solution") */
-      strcpy( status_buffer, "No solution");
+      strcpy( status_buffer, "No solution" );
       break;
     case SUDOKU_STATUS_ONE_SOLUTION_ONLY: /* printf("Only ONE solution") */
-      strcpy( status_buffer, "Only One solution");
+      strcpy( status_buffer, "Only One solution" );
       break;
     case SUDOKU_STATUS_SEVERAL_SOLUTIONS: /* printf("More than one solution") */
-      strcpy( status_buffer, "More than one solution");
+      strcpy( status_buffer, "More than one solution" );
       break;
     }
     GRAPHIC_TRACE( ("ready to set status text: %s\n", status_buffer) );
@@ -1060,14 +1057,15 @@ void ui_set_status_line( void *cntxt, sudoku_status_t status, int value )
   }
 }
 
-static void ui_set_mark_n_back_level( void *cntxt, int level )
+static void ui_set_mark_n_back_level( const void *cntxt, int level )
 {
-    char buffer[MAX_MARK_LEVEL_SIZE];
     game_cntxt_t *game_cntxt = (game_cntxt_t *)cntxt;
     GtkWidget *back = game_cntxt->edit_items[SUDOKU_BACK_ITEM];
     GtkWidget *menu_label = gtk_bin_get_child( GTK_BIN(back) );
 
     printf("mark_n_back: level %d\n", level );
+
+    char buffer[MAX_MARK_LEVEL_SIZE];
     sprintf( buffer, "Mark #%d", 1 + level );
     gtk_label_set_text(GTK_LABEL(menu_label), buffer);
 
@@ -1080,13 +1078,13 @@ static void ui_set_mark_n_back_level( void *cntxt, int level )
   }
 }
 
-static void ui_change_enter_item( void *cntxt, sudoku_mode_t mode )
+static void ui_change_enter_item( const void *cntxt, sudoku_mode_t mode )
 {
-    char *item_name;
     game_cntxt_t *game_cntxt = (game_cntxt_t *)cntxt;
     GtkWidget *enter = game_cntxt->file_items[SUDOKU_ENTER_ITEM];
     GtkWidget *menu_label = gtk_bin_get_child( GTK_BIN(enter) );
 
+    char *item_name;
     switch ( mode ) {
     case SUDOKU_ENTER_GAME:
         item_name = "_Enter your game";
@@ -1158,7 +1156,7 @@ static GtkWidget *get_menu_item(game_cntxt_t *game_cntxt,
     }
 }
 
-static void ui_disable_menu_item( void *cntxt, sudoku_menu_t which_menu, int which_item )
+static void ui_disable_menu_item( const void *cntxt, sudoku_menu_t which_menu, int which_item )
 {
     game_cntxt_t *game_cntxt = (game_cntxt_t *)cntxt;
     GtkWidget *wdg = get_menu_item( game_cntxt, which_menu, which_item );
@@ -1166,7 +1164,7 @@ static void ui_disable_menu_item( void *cntxt, sudoku_menu_t which_menu, int whi
     gtk_widget_set_sensitive( wdg, FALSE );
 }
 
-static void ui_enable_menu_item( void *cntxt, sudoku_menu_t which_menu, int which_item )
+static void ui_enable_menu_item( const void *cntxt, sudoku_menu_t which_menu, int which_item )
 {
     game_cntxt_t *game_cntxt = (game_cntxt_t *)cntxt;
     GtkWidget *wdg = get_menu_item( game_cntxt, which_menu, which_item );
@@ -1174,7 +1172,7 @@ static void ui_enable_menu_item( void *cntxt, sudoku_menu_t which_menu, int whic
     gtk_widget_set_sensitive( wdg, TRUE );
 }
 
-static void ui_disable_menu( void *cntxt, sudoku_menu_t which )
+static void ui_disable_menu( const void *cntxt, sudoku_menu_t which )
 {
     assert( which >= SUDOKU_MENU_START && which < SUDOKU_MENU_BEYOND );
 
@@ -1200,7 +1198,7 @@ static void ui_disable_menu( void *cntxt, sudoku_menu_t which )
   }
 }
 
-static void ui_enable_menu( void *cntxt, sudoku_menu_t which )
+static void ui_enable_menu( const void *cntxt, sudoku_menu_t which )
 {
     assert( which >= SUDOKU_MENU_START && which < SUDOKU_MENU_BEYOND );
 
@@ -1226,7 +1224,7 @@ static void ui_enable_menu( void *cntxt, sudoku_menu_t which )
     }
 }
 
-void ui_success_dialog( void *data, sudoku_duration_t *dhms )
+void ui_success_dialog( const void *data, sudoku_duration_t *dhms )
 {
     game_cntxt_t *game_cntxt = (game_cntxt_t *)data;
     GtkWidget *restart = create_restart_dialog( GTK_WINDOW(game_cntxt->window),
@@ -1856,12 +1854,115 @@ static void *init_window_system( int *argcp, char **argv, char *app_name )
     return (void *)(&game_context);
 }
 
+static void print_sudoku_help( void )
+{
+    printf("    sudoku [-d] [-g <number>] [-h] [-x] [file]\n" );
+    printf("     -d    demo: step in the game until solved or no more hint\n");
+    printf("     -g    start with the following game number\n");
+    printf("     -h    display this help message and exits\n");
+    printf("     -x    exit demo when done (ignored if -d was not given)\n");
+    printf("     file  is the file name describing the sudoku game to play\n");
+    printf("\n   Option -g and file are exclusive.\n");
+    printf("   If option -d is given without either -g or file, a random\n");
+    printf("   game is automatically generated for the demonstration.\n");
+    exit( 1 );
+}
+
+typedef struct {
+    char *file_name;
+    char *game_number;
+    bool demo, exit;
+} args_t;
+
+static void parse_sudoku_args( int argc, char **argv, args_t *args )
+{
+    assert( NULL != args );
+    args->file_name = NULL;
+    args->game_number = NULL;
+    args->demo = args->exit = false;
+
+    char **pp = &argv[1];
+
+    while (--argc) {
+        char *s = *pp;
+        if (*s++ == '-') {
+            switch ( *s++ ) {
+            case 'g': case 'G':
+                if ( *s ) {
+                    args->game_number = s;
+                    break;
+                } else if ( --argc ) {
+                    s = *++pp;
+                    args->game_number = s;
+	                break;
+	            }
+            	/* falls through */
+            default:
+                printf("sudoku: error option not recognized\n");
+                /* falls through */
+
+            case 'H': case 'h': /* help and stop */
+                print_sudoku_help( );
+                break;
+            case 'D': case 'd':
+                args->demo = true;
+                break;
+            case 'X': case 'x':
+                args->exit = true;
+            }
+        } else {
+            if ( NULL != args->file_name ) {
+                printf("sudoku: too many file names, aborting\n");
+                exit( 1 );
+            }
+            args->file_name = *pp;
+        }
+        pp++;
+    }
+    if ( NULL != args->file_name && NULL != args->game_number ) {
+        printf("sudoku: option -g and file name are exclusive, aborting\n");
+        exit( 1 );
+    }
+}
+
+static int timeout_src = 0;
+
+typedef struct {
+    const void *instance;
+    bool       stop_after;
+    int        next_hint;   // number of time units before hinting
+    int        next_step;   // number of time units before stepping
+    int        count;
+} demo_state_t;
+
+static int demo_fct( gpointer demo_data )
+{
+    demo_state_t *state = demo_data;
+
+    ++state->count;
+    if ( state->count == state->next_hint ) {
+        printf("Showing a hint\n");
+        sudoku_hint_type hint = sudoku_hint( state->instance );
+
+        if ( NO_HINT == hint ) {
+            if ( state->stop_after ) exit(0);   // if no hint, check stop after to exit
+            return 0;                           // to stop the timer
+        }
+    }
+    if ( state->count == state->next_step ) {
+        printf("Executing 1 step\n");
+        sudoku_step( state->instance );
+        state->count = 0;   // reset the count
+    }
+    return 1;
+}
+
 int main( int argc, char *argv[] )
 {
     void *instance = init_window_system( &argc, argv, SUDOKU_DEFAULT_NAME );
 
     if ( 0 != read_options( instance ) ) {
-        printf("sudoku: error reading options: use default\n");
+        printf("sudoku: error reading options: using default\n");
     }
 
     game_cntxt_t *game_cx = (game_cntxt_t *)instance;
@@ -1870,7 +1971,6 @@ int main( int argc, char *argv[] )
     }
 
     setup_sudoku_window( instance );
-    GRAPHIC_TRACE( ( "main.c: setup_window done\n") );
 
     static sudoku_ui_table_t ui_fcts = {
         .redraw = ui_redraw_game, 
@@ -1884,10 +1984,32 @@ int main( int argc, char *argv[] )
         .disable_menu_item = ui_disable_menu_item,
         .success_dialog = ui_success_dialog
     };
+    sudoku_game_init( instance, &ui_fcts );
 
-    if ( sudoku_game_init( instance, argc, argv, &ui_fcts ) ) {
-        exit(1);
+    args_t args;
+    parse_sudoku_args( argc, argv, &args );
+    sudoku_level_t level = 0;
+
+    if ( NULL != args.file_name ) {
+        printf("sudoku: starting game %s\n", args.file_name );
+        level = sudoku_open_file( instance, args.file_name );
+    } else if ( NULL != args.game_number ) {
+        printf("sudoku: starting game %s\n", args.game_number );
+        level = sudoku_pick_game( instance, args.game_number );
     }
+
+    if ( args.demo ) {
+        if ( 0 == level ) level = sudoku_random_game( instance );
+        demo_state_t dstate;
+        dstate.instance = instance;
+        dstate.stop_after = args.exit;
+        dstate.next_hint = 1;
+        dstate.next_step = 3;
+        dstate.count = 0;
+        timeout_src = g_timeout_add( 1000, demo_fct, &dstate );
+    }
+
+    if ( level > 0 ) printf("sudoku: game level %d\n", level );
     /* All GTK applications must have a gtk_main(). Control ends here
      * and waits for an event to occur (like a key press or
      * mouse event). */

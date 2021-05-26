@@ -363,6 +363,25 @@ extern int count_single_symbol_cells( void )
     return n;
 }
 
+extern bool is_game_solved( void )
+{
+    int n_symbols[ SUDOKU_N_SYMBOLS ] = { 0 };
+
+    for ( int c = 0; c < SUDOKU_N_COLS; c ++ ) {
+        for ( int r = 0; r < SUDOKU_N_ROWS; r ++ ) {
+            sudoku_cell_t *cell = get_cell( r, c );
+            if ( 1 == cell->n_symbols ) {
+                int symbol = get_number_from_map( cell->symbol_map );
+                ++n_symbols[ symbol ];
+            }
+        }
+    }
+    for ( int i = 0; i < SUDOKU_N_SYMBOLS; ++i ) {
+        if ( n_symbols[i] != SUDOKU_N_SYMBOLS ) return false;
+    }
+    return true;
+}
+
 /* fills the singles array with the location of cells whose single symbol matches a
    bit in symbol_map. The single array must have been allocated by the caller with
    enough room to allow up to SUDOKU_N_SYMBOLS * number of bits in symbol_map.

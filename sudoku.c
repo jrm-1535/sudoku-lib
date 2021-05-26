@@ -219,7 +219,7 @@ static sudoku_ui_table_t sudoku_ui_fcts;
 #define SUDOKU_DISABLE_MENU_ITEM( _c, _m, _i ) sudoku_ui_fcts.disable_menu_item( _c, _m, _i )
 #define SUDOKU_SUCCESS_DIALOG( _c, _d )        sudoku_ui_fcts.success_dialog( _c, _d )
 
-static void set_game_state( void *cntxt, int new_state )
+static void set_game_state( const void *cntxt, int new_state )
 {
     if ( new_state == sudoku_state ) return;
 
@@ -291,7 +291,7 @@ static void set_game_state( void *cntxt, int new_state )
     }
 }
 
-static void update_selection_dependent_menus( void *cntxt )
+static void update_selection_dependent_menus( const void *cntxt )
 {
     int row, col;
     get_selected_row_col( &row, &col );
@@ -314,7 +314,7 @@ static void update_selection_dependent_menus( void *cntxt )
     }
 }
 
-static void update_edit_menu( void *cntxt )
+static void update_edit_menu( const void *cntxt )
 {
     SUDOKU_ASSERT ( SUDOKU_STARTED == sudoku_state );
 
@@ -351,7 +351,7 @@ static void update_edit_menu( void *cntxt )
     }
 }
 
-static void set_current_selection( void *cntxt, int row, int col, bool force_redraw )
+static void set_current_selection( const void *cntxt, int row, int col, bool force_redraw )
 {
     int currentSelectedRow, currentSelectedCol;
     get_selected_row_col( &currentSelectedRow, &currentSelectedCol);
@@ -375,18 +375,18 @@ static void set_current_selection( void *cntxt, int row, int col, bool force_red
     SUDOKU_REDRAW( cntxt );
 }
 
-extern void sudoku_set_selection( void *cntxt, int row, int col )
+extern void sudoku_set_selection( const void *cntxt, int row, int col )
 {
     set_current_selection( cntxt, row, col, false );
 }
 
-static void remove_selection( void *cntxt )
+static void remove_selection( const void *cntxt )
 {
     select_row_col(-1, -1 );
     update_selection_dependent_menus( cntxt );
 }
 
-extern void sudoku_move_selection(  void *cntxt, sudoku_key_t how )
+extern void sudoku_move_selection( const void *cntxt, sudoku_key_t how )
 {
     int currentSelectedRow, newSelectedRow, currentSelectedCol, newSelectedCol;
  
@@ -472,7 +472,7 @@ extern void sudoku_move_selection(  void *cntxt, sudoku_key_t how )
     return;
 }
 
-static void start_new_game( void *cntxt, const char *name )
+static void start_new_game( const void *cntxt, const char *name )
 {
     start_game();
     remove_selection( cntxt );
@@ -492,83 +492,59 @@ static char *get_game_name( int game_number )
     return name_buffer;
 }
 
-static void do_game( void *cntxt, int game_number )
+static void do_game( const void *cntxt, int game_number )
 {
-    make_game( game_number );
+    set_game_level( make_game( game_number ) );
     start_new_game( cntxt, get_game_name( game_number ) );
 }
 
-typedef struct {
-    char *file_name;
-    int  game_number;
-} args_t;
-
-static int parse_args( int argc, char **argv, args_t *args )
+/* returns an integer game number from the number string. The number
+   must be in the range [SUDOKU_MIN_GAME_NUMBER-SUDOKU_MAX_GAME_NUMBER] */
+static long int parse_game_number( const char *s )
 {
-    SUDOKU_ASSERT( args );
-    args->file_name = NULL;
-    args->game_number = -1;
-
-    char **pp = &argv[1];
-
-#if SUDOKU_FILE_DEBUG
-    printf("argc %d, argv[0] %s\n", argc, argv[0]);
-#endif /* SUDOKU_FILE_DEBUG */
-
-    while (--argc) {
-        char *s = *pp;
-#if SUDOKU_FILE_DEBUG
-        printf( "%s\n", *pp);
-#endif /* SUDOKU_FILE_DEBUG */
-
-        if (*s++ == '-') {
-            switch ( *s++ ) {
-            case 'g': case 'G':
-                if ( *s ) {
-                    args->game_number = atoi( s );
-                    break;
-                } else if ( --argc ) {
-                    s = *++pp;
-                    args->game_number = atoi( s );
-	                break;
-	            }
-            	/* falls through */
-            default:
-                printf("sudoku: error option not recognized\n");
-                /* falls through */
-
-            case 'H': case 'h': /* help and stop */
-                printf("     sudoku [-g]number [-h] [file]\n" );
-	            printf("     -g    start with the following game number\n");
-                printf("     -h    display this help message and exits\n");
-                printf("     file  is the file name describing the sudoku game to play\n");
-                return 1;
-            }
-        } else {
-            if ( NULL != args->file_name ) {
-                printf("Too many file names, aborting\n" );
-                exit( 1 );
-            }
-            args->file_name = *pp;
-        }
-        pp++;
+    char *end;
+    long int n = strtol( s, &end, 10 );
+    if ( *end != 0 || end == s ||
+         n < SUDOKU_MIN_GAME_NUMBER || n > SUDOKU_MAX_GAME_NUMBER ) {
+        printf( "Invalid decimal game number\n" );
+        return -1;
     }
-    return 0;
+//    printf("n=%ld string %s(0x%p) end %s(0x%p)\n", n, s, s, end, end );
+    return n;
 }
 
-/** Default window name when no game is on going */
-#define SUDOKU_DEFAULT_WINDOW_NAME "Sudoku"
-
-extern int sudoku_game_init( void *instance, int argc, char **argv,
-                             sudoku_ui_table_t *fcts )
+static char *get_level_string( sudoku_level_t level )
 {
-    SUDOKU_ASSERT( instance );
-    SUDOKU_ASSERT( argv );
-    SUDOKU_ASSERT( fcts );
+    switch( level ) {
+    case EASY:      return "EASY";
+    case SIMPLE:    return "SIMPLE";
+    case MODERATE:  return "MODERATE";
+    case DIFFICULT: return "DIFFICULT";
+    default:
+        break;
+    }
+    return "";
+}
 
-    args_t args;
-    if ( parse_args( argc, argv, &args ) )
-        return -1;
+static char *get_window_name_from_file_path( const char *file_path )
+{
+#define MAX_WINDOW_NAME 256
+    static char window_name[ MAX_WINDOW_NAME ];
+
+    const char *file_name = strrchr( file_path, PATH_SEPARATOR );
+    if ( NULL == file_name ) file_name = file_path;
+    else ++ file_name;
+
+    SUDOKU_ASSERT( strlen( file_name ) < MAX_WINDOW_NAME - 16 ); // keep 16 bytes for level
+    snprintf( window_name, MAX_WINDOW_NAME, "%s - %s",
+              file_name, get_level_string( get_game_level( ) ) );
+    return window_name;
+}
+
+extern void sudoku_game_init( const void *cntxt, sudoku_ui_table_t *fcts )
+{
+    SUDOKU_ASSERT( cntxt );
+    SUDOKU_ASSERT( fcts );
 
     sudoku_ui_fcts = *fcts;
     SUDOKU_ASSERT( sudoku_ui_fcts.redraw );
@@ -582,25 +558,11 @@ extern int sudoku_game_init( void *instance, int argc, char **argv,
     SUDOKU_ASSERT( sudoku_ui_fcts.disable_menu_item );
     SUDOKU_ASSERT( sudoku_ui_fcts.success_dialog );
 
-    if ( ( args.file_name ) && load_file( args.file_name ) ) {
-        SUDOKU_SET_WINDOW_NAME( instance, args.file_name );
-    } else {
-        SUDOKU_SET_WINDOW_NAME( instance, SUDOKU_DEFAULT_WINDOW_NAME );
-    }
     reset_game( );
-    if ( -1 != args.game_number ) {
-        printf("sudoku: starting game %d\n", args.game_number );
-//        make_game( args.game_number );
-//        start_new_game( instance, get_game_name( args.game_number ) );
-        do_game( instance, args.game_number );
-    } else {
-        set_game_state( instance, SUDOKU_INIT );
-    }
-
-    return 0;
+    set_game_state( cntxt, SUDOKU_INIT );
 }
 
-extern void sudoku_mark_state( void *cntxt )
+extern void sudoku_mark_state( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
     assert_game_state ( SUDOKU_STARTED, "sudoku_mark_state" );
@@ -615,7 +577,7 @@ extern void sudoku_mark_state( void *cntxt )
     }
 }
 
-extern void sudoku_back_to_mark( void *cntxt )
+extern void sudoku_back_to_mark( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
     printf("Back to mark - calling return to last bookmark\n");
@@ -641,7 +603,7 @@ static bool check_from_current_position( void )
 }
 
 
-extern void sudoku_step( void *cntxt )
+extern void sudoku_step( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
     if ( ! is_game_started() ) return;
@@ -650,25 +612,29 @@ extern void sudoku_step( void *cntxt )
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_HINT, NO_SOLUTION );
         return;
     }
+    reset_cell_attributes();
 
     int step = solve_step( );
     if ( step > 0 ) {
         if ( step == 2 ) {  // game over
             set_game_state( cntxt, SUDOKU_OVER );
+            SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_OVER, 0 );
+        } else {
+            SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_BLANK, 0 );
         }
         SUDOKU_REDRAW( cntxt );
     }
 }
 
-extern void sudoku_hint( void *cntxt )
+extern sudoku_hint_type sudoku_hint( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
-    if ( ! is_game_started( ) ) return;
+    if ( ! is_game_started( ) ) return NO_HINT;
 
     reset_cell_attributes();
     if ( ! check_from_current_position() ) {
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_HINT, NO_SOLUTION );
-        return;
+        return NO_SOLUTION;
     }
 
     int selection_row = -1, selection_col = -1;
@@ -680,9 +646,10 @@ extern void sudoku_hint( void *cntxt )
         update_selection_dependent_menus( cntxt );
         SUDOKU_REDRAW( cntxt );
     }
+    return hint;
 }
 
-extern void sudoku_fill( void *cntxt, bool no_conflict )
+extern void sudoku_fill( const void *cntxt, bool no_conflict )
 {
     SUDOKU_ASSERT( cntxt );
 
@@ -698,7 +665,7 @@ extern void sudoku_fill( void *cntxt, bool no_conflict )
     }
 }
 
-extern void sudoku_fill_all( void *cntxt, bool no_conflict )
+extern void sudoku_fill_all( const void *cntxt, bool no_conflict )
 {
     SUDOKU_ASSERT( cntxt );
 
@@ -715,7 +682,7 @@ extern void sudoku_fill_all( void *cntxt, bool no_conflict )
     SUDOKU_REDRAW( cntxt );
 }
 
-extern void sudoku_check_from_current_position( void *cntxt )
+extern void sudoku_check_from_current_position( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
     if ( ! is_game_started( ) ) return;
@@ -730,7 +697,7 @@ extern void sudoku_check_from_current_position( void *cntxt )
     }
 }
 
-extern void sudoku_solve_from_current_position( void *cntxt )
+extern void sudoku_solve_from_current_position( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
     if ( ! is_game_started( ) ) return;
@@ -750,7 +717,7 @@ extern void sudoku_solve_from_current_position( void *cntxt )
     SUDOKU_REDRAW( cntxt );
 }
 
-static void update_entering_state( void *cntxt )
+static void update_entering_state( const void *cntxt )
 {
     reset_cell_attributes();
     switch( check_current_game( ) ) {
@@ -806,7 +773,7 @@ extern bool sudoku_how_long_playing( sudoku_duration_t *duration_hms )
     return false;
 }
 
-static void end_game( void *cntxt )
+static void end_game( const void *cntxt )
 {
     SUDOKU_ASSERT ( SUDOKU_STARTED == sudoku_state );
     sudoku_duration_t duration_hms;
@@ -817,7 +784,7 @@ static void end_game( void *cntxt )
     SUDOKU_SUCCESS_DIALOG( cntxt, &duration_hms );
 }
 
-static bool toggle_symbol( void *cntxt, int symbol, int row, int col )
+static bool toggle_symbol( const void *cntxt, int symbol, int row, int col )
 {
     SUDOKU_TRACE( SUDOKU_INTERFACE_DEBUG, ("toggle_symbol %c @ row %d col %d\n", symbol, row, col) );
     SUDOKU_ASSERT( symbol > '0' && symbol <= '9' );
@@ -847,7 +814,7 @@ static bool toggle_symbol( void *cntxt, int symbol, int row, int col )
     return false;
 }
 
-extern void sudoku_enter_symbol( void *cntxt, int symbol )
+extern void sudoku_enter_symbol( const void *cntxt, int symbol )
 {
     int row, col;
     get_selected_row_col( &row, &col );
@@ -862,13 +829,13 @@ extern void sudoku_enter_symbol( void *cntxt, int symbol )
     }
 }
 
-static void empty_game( void *cntxt )
+static void empty_game( const void *cntxt )
 {
     reset_game();
     SUDOKU_REDRAW( cntxt );
 }
 
-extern void sudoku_toggle_entering_new_game( void *cntxt )
+extern void sudoku_toggle_entering_new_game( const void *cntxt )
 {
     if ( is_game_in_entering_state( ) ) {
         // cancel entering mode
@@ -882,7 +849,7 @@ extern void sudoku_toggle_entering_new_game( void *cntxt )
     empty_game( cntxt );
 }
 
-extern int sudoku_toggle_conflict_detection(  void *cntxt  )
+extern int sudoku_toggle_conflict_detection( const void *cntxt  )
 {
     bool res = show_conflict;
     show_conflict = ! res;
@@ -899,7 +866,7 @@ extern int sudoku_toggle_conflict_detection(  void *cntxt  )
     return res;
 }
 
-extern int sudoku_toggle_auto_checking(  void *cntxt )
+extern int sudoku_toggle_auto_checking( const void *cntxt )
 {
     bool res = auto_check;
     auto_check = ! res;
@@ -913,7 +880,7 @@ extern int sudoku_toggle_auto_checking(  void *cntxt )
     return res;
 }
 
-extern void sudoku_erase_selection( void *cntxt )
+extern void sudoku_erase_selection( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
 
@@ -935,7 +902,7 @@ extern void sudoku_erase_selection( void *cntxt )
     }
 }
 
-extern void sudoku_commit_game( void *cntxt, const char *game_name )
+extern void sudoku_commit_game( const void *cntxt, const char *game_name )
 {
     SUDOKU_ASSERT ( SUDOKU_ENTER == sudoku_state );
 
@@ -949,55 +916,39 @@ extern void sudoku_commit_game( void *cntxt, const char *game_name )
     SUDOKU_REDRAW( cntxt );
 }
 
-#define MIN_SUDOKU_GAME_NUMBER 1     /**< Min game number in random selection */
-#define MAX_SUDOKU_GAME_NUMBER 10000 /**< Max game number in random selection */
-
-extern void sudoku_pick_game(void *cntxt, const char *number_string )
+extern sudoku_level_t sudoku_pick_game( const void *cntxt, const char *number_string )
 {
-    int game_number;
-
     if ( number_string ) {
-        game_number = atoi( number_string );
-        if ( ( game_number >= MIN_SUDOKU_GAME_NUMBER ) &&
-            ( game_number <= MAX_SUDOKU_GAME_NUMBER ) ) {
+        int game_number = parse_game_number( number_string );
+        if ( -1 != game_number ) {
             do_game( cntxt, game_number );
+            return get_game_level( );
         }
     }
+    return 0;
 }
 
-extern void sudoku_random_game( void *cntxt )
+extern sudoku_level_t sudoku_random_game( const void *cntxt )
 {
     /* randomly choose a game number */
-    int nb = random_value( MIN_SUDOKU_GAME_NUMBER, MAX_SUDOKU_GAME_NUMBER );
+    int nb = random_value( SUDOKU_MIN_GAME_NUMBER, SUDOKU_MAX_GAME_NUMBER );
     do_game( cntxt, nb );
+    return get_game_level( );
 }
 
-/** path separator for different systems */
-#ifndef DOS_STYLE_SEPARATOR
-#define PATH_SEPARATOR        '/'
-#else
-#define PATH_SEPARATOR        '\\'
-#endif
-
-extern int sudoku_open_file( void *cntxt, const char *path )
+extern sudoku_level_t sudoku_open_file( const void *cntxt, const char *path )
 {
     void *game = save_current_game( );  // in case load file fails
     if ( load_file( path ) ) {
-        const char *name = strrchr( path, PATH_SEPARATOR );
-        if ( NULL == name ) {
-            name = path;
-        } else {
-            ++name;
-        }
-
+        const char *name = get_window_name_from_file_path( path );
         start_new_game( cntxt, name );  // discards saved game & start new one
-        return 1;
+        return get_game_level( );
     }
     restore_saved_game( game );         // resume previous game
     return 0;
 }
 
-extern void sudoku_undo( void *cntxt )
+extern void sudoku_undo( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
     if ( ! is_game_on( ) ) return;
@@ -1022,7 +973,7 @@ extern void sudoku_undo( void *cntxt )
     }
 }
 
-extern void sudoku_redo( void *cntxt )
+extern void sudoku_redo( const void *cntxt )
 {
     SUDOKU_ASSERT( cntxt );
     if ( ! is_game_on( ) ) return;

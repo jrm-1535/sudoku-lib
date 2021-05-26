@@ -467,44 +467,6 @@ static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
     return true;
 }
 
-static bool act_on_hint( hint_desc_t *hdesc )
-{
-    SUDOKU_ASSERT( hdesc->n_hints );
-    switch ( hdesc->action ) {
-    case NONE: case ADD:
-        SUDOKU_ASSERT( 0 );
-    case SET:
-        for ( int i = 0; i < hdesc->n_hints; ++i ) {
-            set_cell_candidates( hdesc->hints[i].row, hdesc->hints[i].col,
-                                 hdesc->n_symbols, hdesc->symbol_map );
-        }
-        break;
-    case REMOVE:
-        for ( int i = 0; i < hdesc->n_hints; ++i ) {
-            remove_cell_candidates( hdesc->hints[i].row, hdesc->hints[i].col,
-                                    hdesc->n_symbols, hdesc->symbol_map );
-        }
-        break;
-    }
-    return is_game_solved(); 
-}
-
-extern int solve_step( void )
-{
-    void *game = save_current_game_for_solving();
-    hint_desc_t hdesc;
-    bool hint = get_hint( &hdesc );
-    restore_saved_game( game );
-
-    if ( hint ) {
-        if ( act_on_hint( &hdesc ) ) return 2;
-        return 1;
-    }
-    return 0;
-}
-
-typedef enum { EASY, MILD, MODERATE, DIFFICULT } level_t;
-
 typedef struct {
     int n_naked_singles, n_hidden_singles;
     int n_locked_candidates;
@@ -525,7 +487,7 @@ static void print_hint_stats( hint_stats_t *hstats )
     printf( "  chains: %d\n", hstats->n_chains );
 }
 
-static level_t assess_hint_stats( hint_stats_t *hstats )
+static sudoku_level_t assess_hint_stats( hint_stats_t *hstats )
 {
     print_hint_stats( hstats );
 
@@ -533,12 +495,12 @@ static level_t assess_hint_stats( hint_stats_t *hstats )
 
     if ( hstats->n_hidden_subsets ) return MODERATE;
 
-    if ( hstats->n_naked_subsets || hstats->n_locked_candidates ) return MILD;
+    if ( hstats->n_naked_subsets || hstats->n_locked_candidates ) return SIMPLE;
 
     return EASY;
 }
 
-static level_t evaluate_level( void )
+static sudoku_level_t evaluate_level( void )
 {
     print_grid_pencils(); // before
     game_new_filled_grid();
@@ -561,44 +523,37 @@ static level_t evaluate_level( void )
             SUDOKU_ASSERT( 0 );
         case NAKED_SINGLE:
             ++hstats.n_naked_singles;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         case HIDDEN_SINGLE:
             ++hstats.n_hidden_singles;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         case LOCKED_CANDIDATE:
             ++hstats.n_locked_candidates;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         case NAKED_SUBSET:
             ++hstats.n_naked_subsets;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         case HIDDEN_SUBSET:
             ++hstats.n_hidden_subsets;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         case XWING: case SWORDFISH: case JELLYFISH:
             ++hstats.n_fishes;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         case XY_WING:
             ++hstats.n_xy_wings;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         case CHAIN:
             ++hstats.n_chains;
-            if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
             break;
         }
+        if ( act_on_hint( &hdesc ) ) return assess_hint_stats( &hstats );
     }
     print_hint_stats( &hstats );
     printf( "Stopped at NO_HINT\n" );
     return DIFFICULT;
 }
 
-extern int make_game( int game_nb )
+extern sudoku_level_t make_game( int game_nb )
 {
 #ifdef TIME_MEASURE
     time_t start_time, end_time;
@@ -629,8 +584,8 @@ extern int make_game( int game_nb )
 #endif /* TIME_MEASURE */
 
     reset_stack( );
-    level_t level = evaluate_level( );
+    sudoku_level_t level = evaluate_level( );
     printf("Difficulty level %d\n", level );
     reset_stack();
-    return 0;
+    return level;
 }

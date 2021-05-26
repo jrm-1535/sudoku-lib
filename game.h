@@ -43,4 +43,7 @@ extern void game_fill_cell( int row, int col, bool no_conflict );
 extern void set_game_time( unsigned long duration );
 extern unsigned long get_game_duration( void );
 
+extern void set_game_level( sudoku_level_t level );
+extern sudoku_level_t get_game_level( void );
+
 #endif /* __GAME_H__ */

@@ -20,6 +20,7 @@
 /* file syntax :
 
   # comment - can start anywhere in a line, stops at end of line.
+  L nnnnnn
   T nnnnnn
   C c  R r  = v    x : v   x,y = v   x,y : v1, v2 , v3
   where 
@@ -66,17 +67,6 @@
   symbol:                     '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 */
 
-static int get_digit( FILE *fd )
-{
-    int c = getc(fd);
-
-    if (c <'0' || c > '9') {
-        ungetc( c, fd );
-        return SUDOKU_FAILURE;
-    }
-    return c - '0';
-}
-
 static int get_symbol( FILE *fd )
 {
     int c = getc(fd);
@@ -113,20 +103,22 @@ static void skip_space( FILE *fd )
     }
 }
 
+static sudoku_level_t parse_level( FILE *fd )
+{
+    int level;
+    int n_scanned = fscanf( fd, "%d", &level );
+    if ( n_scanned < 1 || EOF == n_scanned ) {
+        return 0;
+    }
+    return (sudoku_level_t)level;
+}
+
 static unsigned long parse_time( FILE *fd )
 {
     unsigned long time = 0;
-    int digit = get_digit( fd );
-
-    if ( SUDOKU_FAILURE == digit ) {
-        printf("Syntax error: expecting a digit >= '0' (T)\n");
+    int n_scanned = fscanf( fd, "%lu", &time );
+    if ( n_scanned < 1 || EOF == n_scanned ) {
         return 0;
-    }
-
-    while ( SUDOKU_FAILURE != digit ) {
-        time = time * 10;
-        time += digit;
-        digit = get_digit( fd );
     }
     return time;
 }
@@ -219,25 +211,26 @@ static int parse_assignment( FILE *fd )
 static int parse_file( FILE *fd )
 {
     unsigned long time = 0;
-
+    sudoku_level_t level = 0;
     int c;
     while ( EOF != (c = getc( fd )) ) {
         // printf("parsing %c\n", c );
         switch ( c ) {
         case 'C': case 'c': case 'R': case 'r':
             skip_space( fd );
-            if ( SUDOKU_FAILURE == parse_command( fd, c ) )
-                return SUDOKU_FAILURE;
+            if ( SUDOKU_FAILURE == parse_command( fd, c ) ) return SUDOKU_FAILURE;
+            break;
+
+        case 'L': case 'l':
+            skip_space( fd );
+            level = parse_level( fd );
+            if ( level < EASY || level > DIFFICULT )       return SUDOKU_FAILURE;
             break;
 
         case 'T': case 't':
-            if ( 0 != time )
-                return SUDOKU_FAILURE;
-
             skip_space( fd );
             time = parse_time( fd );
-            if ( 0 == time )
-                return SUDOKU_FAILURE;
+            if ( 0 == time )                                return SUDOKU_FAILURE;
             break;
 
         case '#': case ' ': case '\t': case '\n': case '\r': /* just skip */
@@ -253,34 +246,38 @@ static int parse_file( FILE *fd )
         }
     }
 
+    if (0 == level) return SUDOKU_FAILURE;
+    set_game_level( level );
+    if ( 0 == time ) return SUDOKU_FAILURE;
     set_game_time( time );
     return SUDOKU_SUCCESS;
 }
 
-extern int load_file( const char *name )
+extern bool load_file( const char *name )
 {
     FILE *fd;
 
     fd = fopen( name, "r" );
     if ( NULL == fd ) {
         printf("File %s does not exist\n", name);
-        return 0;
+        return false;
     }
 
     if ( parse_file( fd) ) {
         printf("Error parsing file %s\n", name);
-        return 0;
+        return false;
     }
     fclose(fd);
-    return 1;
+    return true;
 }
 
 static int write_file( FILE *fd, const char *name )
 {
     int r, c;
 
-    fprintf(fd, "# Saved as %s\r\n\r\n", name );
-    fprintf(fd, "T %lu \r\n", get_game_duration() );
+    fprintf(fd, "# Saved as %s\r\n\r\n", name);
+    fprintf(fd, "L %u\r\n", get_game_level());
+    fprintf(fd, "T %lu\r\n", get_game_duration());
 
     for ( r = 0; r < SUDOKU_N_ROWS; r ++ ) {
         bool row_set = false;
@@ -302,12 +299,12 @@ static int write_file( FILE *fd, const char *name )
                     fputc( ':', fd );
                 }
                 int symbol = extract_bit_from_map( &map );
-                SUDOKU_ASSERT(0 != symbol);
+                SUDOKU_ASSERT(-1 != symbol);
                 fprintf(fd, " %d", 1 + symbol );
 
                 while( true ) {
                     symbol = extract_bit_from_map( &map );
-                    if ( 0 == symbol ) break;
+                    if (-1 == symbol) break;
 
                     fprintf(fd, ", %d", 1 + symbol );
                 }
@@ -318,7 +315,7 @@ static int write_file( FILE *fd, const char *name )
     return 0;
 }
 
-extern int sudoku_save_file( void *context, const char *name )
+extern int sudoku_save_file( const void *context, const char *name )
 {
     (void)context;      // suppress unused paramater warning
 

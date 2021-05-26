@@ -2818,6 +2818,52 @@ extern bool get_hint( hint_desc_t *hdp )
     return false;
 }
 
+extern bool act_on_hint( hint_desc_t *hdesc )
+{
+    SUDOKU_ASSERT( hdesc->n_hints );
+    switch ( hdesc->action ) {
+    case NONE: case ADD:
+        SUDOKU_ASSERT( 0 );
+    case SET:
+        for ( int i = 0; i < hdesc->n_hints; ++i ) {
+            set_cell_candidates( hdesc->hints[i].row, hdesc->hints[i].col,
+                                 hdesc->n_symbols, hdesc->symbol_map );
+        }
+        break;
+    case REMOVE:
+        for ( int i = 0; i < hdesc->n_hints; ++i ) {
+            remove_cell_candidates( hdesc->hints[i].row, hdesc->hints[i].col,
+                                    hdesc->n_symbols, hdesc->symbol_map );
+        }
+        break;
+    }
+    return is_game_solved(); 
+}
+
+static void show_hint_pencils( hint_desc_t *hdesc )
+{
+    if ( ! hdesc->hint_pencil ) return;
+    for ( int i = 0; i < hdesc->n_hints; ++i ) {
+        set_cell_attributes( hdesc->hints[i].row, hdesc->hints[i].col, PENCIL );
+    }
+}
+
+extern int solve_step( void )
+{
+    void *game = save_current_game_for_solving();
+    hint_desc_t hdesc;
+    bool hint = get_hint( &hdesc );
+    restore_saved_game( game );
+
+    if ( hint ) {
+        game_new_grid( );           // make sure this step will be undoable
+        show_hint_pencils( &hdesc );
+        if ( act_on_hint( &hdesc ) ) return 2;
+        return 1;
+    }
+    return 0;
+}
+
 extern sudoku_hint_type find_hint( int *selection_row, int *selection_col )
 {
 //printf("Before starting hints:\n");

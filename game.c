@@ -5,6 +5,7 @@
 #ifndef WIN32
 #include <unistd.h>
 #endif
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
@@ -200,8 +201,23 @@ extern int return_to_last_bookmark( void )  // exported to sudoku_back_to_mark i
     return -1;
 }
 
+static sudoku_level_t game_level;
 static time_t play_started;
 static unsigned long already_played;
+
+extern void set_game_level( sudoku_level_t level )
+{
+    if ( level < EASY || level > DIFFICULT ) {
+        printf("Invalid game level %d\n", level );
+        exit(1);
+    }
+    game_level = level;
+}
+
+extern sudoku_level_t get_game_level( void )
+{
+    return game_level;
+}
 
 extern void set_game_time( unsigned long duration )
 {

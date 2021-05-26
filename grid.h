@@ -71,19 +71,17 @@ typedef struct {
     int row, col;
 } cell_ref_t;       // reference to a cell by row & col
 
+extern bool is_game_solved( void );
+
+#define SOLVED_COUNT (SUDOKU_N_ROWS*SUDOKU_N_COLS)
 extern int count_single_symbol_cells( void );
+
 extern int get_singles_matching_map_in_game( int symbol_map, cell_ref_t *singles );
 
 static inline bool is_single_ref( cell_ref_t *cr )
 {
     sudoku_cell_t *cell = get_cell( cr->row, cr->col );
     return 1 == cell->n_symbols;
-}
-
-#define SOLVED_COUNT (SUDOKU_N_ROWS*SUDOKU_N_COLS)
-static inline bool is_game_solved( void )
-{
-    return SOLVED_COUNT == count_single_symbol_cells();
 }
 
 extern bool remove_grid_conflicts( void );

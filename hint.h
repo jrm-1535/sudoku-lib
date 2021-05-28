@@ -7,8 +7,7 @@
 #ifndef __HINT_H__
 #define __HINT_H__
 
-#include "sudoku.h"
-#include "game.h"
+#include "grid.h"
 
 typedef enum {
     NONE, SET, REMOVE, ADD

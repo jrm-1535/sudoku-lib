@@ -620,6 +620,7 @@ extern void sudoku_step( const void *cntxt )
             set_game_state( cntxt, SUDOKU_OVER );
             SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_OVER, 0 );
         } else {
+            if ( show_conflict ) { reset_grid_errors( ); }
             SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_BLANK, 0 );
         }
         SUDOKU_REDRAW( cntxt );
@@ -801,7 +802,6 @@ static bool toggle_symbol( const void *cntxt, int symbol, int row, int col )
         update_edit_menu( cntxt );
         SUDOKU_REDRAW( cntxt );
 
-// TODO: make sure last entry is valid!
         if ( is_game_solved( ) ) {
             SUDOKU_TRACE( SUDOKU_INTERFACE_DEBUG, ("SOLVED!\n") );
             return true;

@@ -1,5 +1,5 @@
 /*
-  Sudoku generator
+  Sudoku solver and generator
 */
 #include <stdlib.h>
 #include <string.h>

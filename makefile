@@ -40,9 +40,21 @@ rand.o:    rand.c rand.h
 
 gen.o:     gen.c gen.h grid.h game.h stack.h rand.h sudoku.h debug.h
 
-hint.o:    hint.c hint.h grid.h stack.h sudoku.h debug.h
+hint.o:    hint.c hint.h hsupport.h singles.h locked.h subsets.h fishes.h xywings.h chains.h grid.h stack.h sudoku.h debug.h
 
-libsudoku.a: sudoku.o game.o grid.o stack.o files.o rand.o gen.o hint.o
+singles.o:  singles.c singles.h hsupport.h grid.h sudoku.h debug.h
+
+locked.o:  locked.c locked.h hsupport.h grid.h sudoku.h debug.h
+
+subsets.o: subsets.c subsets.h hsupport.h grid.h sudoku.h debug.h
+
+fishes.o: fishes.c fishes.h hsupport.h grid.h sudoku.h debug.h
+
+xywings.o: xywings.c xywings.h hsupport.h grid.h sudoku.h debug.h
+
+chains.o: chains.c chains.h hsupport.h grid.h sudoku.h debug.h
+
+libsudoku.a: sudoku.o game.o grid.o stack.o files.o rand.o gen.o hint.o singles.o locked.o subsets.o fishes.o xywings.o chains.o
 	   $(AR) -crs $@ $^
 
 .PHONY: clean

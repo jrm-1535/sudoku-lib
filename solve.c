@@ -9,7 +9,7 @@
 #include "stack.h"
 #include "grdstk.h"
 #include "grid.h"
-#include "gen.h"
+#include "solve.h"
 #include "hint.h"
 #include "rand.h"
 

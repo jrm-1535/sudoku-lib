@@ -11,7 +11,7 @@
 
 #include "grid.h"
 #include "game.h"
-#include "gen.h"
+#include "solve.h"
 #include "hint.h"
 #include "debug.h"
 

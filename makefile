@@ -26,7 +26,7 @@ sudoku:
 html/index.html: sudoku.h Doxyfile
 	   $(DOC)
 
-sudoku.o:  sudoku.c sudoku.h game.h grid.h stack.h gen.h files.h debug.h
+sudoku.o:  sudoku.c sudoku.h game.h grid.h stack.h solve.h files.h debug.h
 
 game.o:    game.c game.h grid.h stack.h sudoku.h debug.h
 
@@ -38,7 +38,7 @@ files.o:   files.c files.h grid.h sudoku.h debug.h
 
 rand.o:    rand.c rand.h
 
-gen.o:     gen.c gen.h grid.h game.h stack.h rand.h sudoku.h debug.h
+solve.o:   solve.c solve.h grid.h game.h stack.h rand.h sudoku.h debug.h
 
 hint.o:    hint.c hint.h hsupport.h singles.h locked.h subsets.h fishes.h xywings.h chains.h grid.h stack.h sudoku.h debug.h
 
@@ -54,7 +54,7 @@ xywings.o: xywings.c xywings.h hsupport.h grid.h sudoku.h debug.h
 
 chains.o: chains.c chains.h hsupport.h grid.h sudoku.h debug.h
 
-libsudoku.a: sudoku.o game.o grid.o stack.o files.o rand.o gen.o hint.o singles.o locked.o subsets.o fishes.o xywings.o chains.o
+libsudoku.a: sudoku.o game.o grid.o stack.o files.o rand.o solve.o hint.o singles.o locked.o subsets.o fishes.o xywings.o chains.o
 	   $(AR) -crs $@ $^
 
 .PHONY: clean

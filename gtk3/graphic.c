@@ -2004,9 +2004,9 @@ int main( int argc, char *argv[] )
         dstate.instance = instance;
         dstate.stop_after = args.exit;
         dstate.next_hint = 1;
-        dstate.next_step = 3;
+        dstate.next_step = 6;
         dstate.count = 0;
-        timeout_src = g_timeout_add( 1000, demo_fct, &dstate );
+        timeout_src = g_timeout_add( 500, demo_fct, &dstate );
     }
 
     if ( level > 0 ) printf("sudoku: game level %d\n", level );

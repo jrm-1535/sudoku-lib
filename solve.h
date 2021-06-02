@@ -9,8 +9,8 @@
 
 #include "game.h"
 
-extern int check_current_game( void );
-extern int find_one_solution( void );
+extern int check_current_grid( void );
+extern bool find_one_solution( void );
 extern sudoku_level_t make_game( int game_number );
 
 #endif /* __SOLVE_H__ */

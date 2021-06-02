@@ -622,6 +622,7 @@ extern void sudoku_step( const void *cntxt )
         } else {
             if ( show_conflict ) { reset_grid_errors( ); }
             SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_BLANK, 0 );
+            update_edit_menu( cntxt );
         }
         SUDOKU_REDRAW( cntxt );
     }
@@ -709,7 +710,8 @@ extern void sudoku_solve_from_current_position( const void *cntxt )
     if ( find_one_solution( ) ) {
         SUDOKU_TRACE( SUDOKU_SOLVE_DEBUG, ("SOLVED!\n")) ;
         update_saved_game( game );
-        update_edit_menu( cntxt );
+        set_game_state( cntxt, SUDOKU_OVER );
+        SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_OVER, 0 );
     } else {
         SUDOKU_TRACE( SUDOKU_SOLVE_DEBUG, ( "Not Solvable from that position\n" ));
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_CHECK, 0 );
@@ -721,7 +723,7 @@ extern void sudoku_solve_from_current_position( const void *cntxt )
 static void update_entering_state( const void *cntxt )
 {
     reset_cell_attributes();
-    switch( check_current_game( ) ) {
+    switch( check_current_grid( ) ) {
     case 2:
         SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_SEVERAL_SOLUTIONS, 0 );
         if ( enter_game_valid ) {
@@ -782,6 +784,7 @@ static void end_game( const void *cntxt )
     printf( "         in %d hours, %d min, %d sec\n",
             duration_hms.hours, duration_hms.minutes, duration_hms.seconds );
     set_game_state( cntxt, SUDOKU_OVER );
+    SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_OVER, 0 );
     SUDOKU_SUCCESS_DIALOG( cntxt, &duration_hms );
 }
 

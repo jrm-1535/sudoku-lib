@@ -9,8 +9,6 @@
 
 #include "sudoku.h"
 
-// exported to sudoku.c
-
 extern int  new_bookmark( void );
 extern int  get_bookmark_number( void );
 extern int  check_if_at_bookmark( void );
@@ -33,6 +31,7 @@ extern void update_saved_game( void *game );
 extern void game_new_grid( void );
 extern void game_new_empty_grid( void );
 extern void game_new_filled_grid( void );
+extern void game_previous_grid( void );
 
 extern void game_set_cell_symbol( int row, int col, int symbol, bool is_given );
 extern void game_toggle_cell_candidate( int row, int col, int symbol );

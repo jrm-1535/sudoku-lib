@@ -6,14 +6,12 @@
 #include <time.h>   /* for performance measurements */
 
 #include "sudoku.h"
-#include "stack.h"
+//#include "stack.h"
 #include "grdstk.h"
 #include "grid.h"
 #include "solve.h"
 #include "hint.h"
 #include "rand.h"
-
-bool check_debug = false;
 
 static bool check_n_update_symbol_table( int row, int col, bool *symbol_table )
 {
@@ -161,7 +159,7 @@ static int check_candidates( void )
     return n_singles;
 }
 
-static sudoku_cell_t * get_next_best_slot( int *prow, int *pcol )
+static sudoku_cell_t * get_next_best_slot( int *rowp, int *colp )
 /* find cells with the lowest number of candidates in the grid,
    which gives the lowest number of possible guesses. */
 {
@@ -198,21 +196,17 @@ for ( int i = 0; i < n_less_candidates_cells; ++i ) {
     printf( "less_candidates_cells[%d].row=%d, .col=%d\n",
             i, less_candidates_cells[i].row, less_candidates_cells[i].col );
 }
-printf( "get_next_best_slot: row=%d, col=%d\n",
-        less_candidates_cells[choice].row, less_candidates_cells[choice].col );
 #endif
-    *prow = less_candidates_cells[choice].row;
-    *pcol = less_candidates_cells[choice].col;
+    *rowp = less_candidates_cells[choice].row;
+    *colp = less_candidates_cells[choice].col;
     return  get_cell( less_candidates_cells[choice].row, less_candidates_cells[choice].col );
 }
 
 typedef struct {
     int stop_at, n_solutions;
-    int n_naked, n_hidden;
-    int n_guesses, n_wrong_guesses;
-} game_rating_t;
+} solve_control_t;
 
-static int try_one_candidate( game_rating_t *gr )
+static int try_one_candidate( solve_control_t *sc )
 /* select at random one of the cells with the least number of candidates,
    and randomly try to set one of them as the cell value. If the move is
    impossible, backtrack. If the move results in all cells being singles,
@@ -221,7 +215,7 @@ static int try_one_candidate( game_rating_t *gr )
    traking, use the undo stack.
 
    return 0 if no solution, or gr->n_solutions if some solution has been found,
-   that:
+   that is:
 
     stop_at n_solutions returned
        1         0         0
@@ -230,68 +224,40 @@ static int try_one_candidate( game_rating_t *gr )
        2         1         1
        2         >1        2 */
 {
-    int r, c, saved_sp = get_sp( );
-#if 1 // SUDOKU_SOLVE_DEBUG
-    printf("#Entering try_one_candidate @level %d stop_at %d nb_sol %d\n", saved_sp, gr->stop_at, gr->n_solutions );
-#endif
-//    print_grid_pencils();
+    int row, col;
+    sudoku_cell_t *cell = get_next_best_slot( &row, &col );
 
-    sudoku_cell_t *cell = get_next_best_slot( &r, &c );
-    printf("Best Slot row %d, col %d, n_symbols %d, map 0x%03x\n", r, c, cell->n_symbols, cell->symbol_map );
+    SUDOKU_SOLVE_TRACE( ("get_next_best_slot: row=%d, col=%d @level %d n_symbols %d, map 0x%03x (%d solutions)\n",
+        row, col, get_current_stack_index(), cell->n_symbols, cell->symbol_map, sc->n_solutions ) );
 
     int sn, nmask = 1, mask = cell->symbol_map;
-    for ( sn = 0; sn < SUDOKU_N_SYMBOLS; sn ++ ) {
+    for ( sn = 0; sn < SUDOKU_N_SYMBOLS; ++sn ) {
         if ( mask & nmask ) {
+            SUDOKU_SOLVE_TRACE( ("Trying symbol %d mask 0x%03x\n", sn, nmask) );
 
-            game_new_grid(); // pusn and copy current grid, down one level for new attempt
-
-            printf("Trying symbol %d mask 0x%03x in best slot n_sol %d\n", sn, nmask, gr->n_solutions );
-            cell = get_cell( r, c );    // same cell in new grid, to allow backtracking later
-#if  SUDOKU_SOLVE_DEBUG
-            printf("Level %d Setting single symbol %c at row %d, col %d (nb symb %d mask 0x%03x)\n",
-                         get_sp(), '1'+sn, r, c, (int)(cell->n_symbols), (int)(cell->symbol_map) );
-#endif /*  SUDOKU_SOLVE_DEBUG */
-            cell->symbol_map = nmask;   
+            game_new_grid();                // push and copy current grid for next attempt
+            cell = get_cell( row, col ); 
+            cell->symbol_map = nmask;
             cell->n_symbols = 1;
-            ++gr->n_guesses;
-
             int res = check_candidates( );  // -1 if impossible, or number of singles
+
             if ( SOLVED_COUNT == res ) {    // solved
-// #if SUDOKU_SOLVE_DEBUG
-                printf ("Solved!\n"); print_grid( );
-// #endif /* SUDOKU_SOLVE_DEBUG */
-                if ( ++gr->n_solutions == gr->stop_at ) {
-                    printf( "Exiting try_one_candidate with n_solutions %d\n", gr->n_solutions );
-                    return gr->stop_at;
-                }
-            }
-            else if ( -1 != res ) { // not an impossible move, keep going
-// #if SUDOKU_SOLVE_DEBUG
-                printf("@Not solved at level %d\n\n", get_sp() );
-// #endif /* SUDOKU_SOLVE_DEBUG */
-                if ( gr->stop_at == try_one_candidate( gr ) ) {
-                    printf("Returning from try_one_candidate %d\n", gr->stop_at );
-                    return gr->stop_at;
-                }
-            }                       // else imposible, backtrack
-
-#if    SUDOKU_SOLVE_DEBUG
-            printf( "%%Wrong path!\n");
-            printf( "%%Backtraking @level %d from %d\n\n", saved_sp, get_sp() );
-#endif /* SUDOKU_SOLVE_DEBUG */
-
-            ++gr->n_wrong_guesses;
-            set_sp( saved_sp );
-#if  SUDOKU_SOLVE_DEBUG
-            print_grid();
-#endif /* SUDOKU_SOLVE_DEBUG */
+                SUDOKU_SOLVE_TRACE( (">> Solved at level %d\n", get_current_stack_index()) );
+                if ( ++sc->n_solutions == sc->stop_at ) { return sc->n_solutions; }
+                SUDOKU_SOLVE_TRACE( (">> Found 1 solution (out of 2)\n") );
+            } else if ( -1 != res ) {       // not an impossible move, keep going
+                if( try_one_candidate( sc ) == sc->stop_at ) { return sc->n_solutions; }
+            }                               // else impossible, backtrack
+            game_previous_grid();           // pop to return to current grid
         }
         nmask <<= 1;
     }
-    return gr->n_solutions;
+    SUDOKU_SOLVE_TRACE( (">> Found enough solutions at level %d, returning %d\n",
+                         get_current_stack_index(), sc->n_solutions) );
+    return sc->n_solutions;
 }
 
-static int solve_grid( game_rating_t *gr, bool multiple )
+static int solve_grid( bool multiple )
 /* return 0, 1 or 2 according to the following table
 
     multiple n_solutions returned
@@ -301,66 +267,15 @@ static int solve_grid( game_rating_t *gr, bool multiple )
        true       1         1
        true       >1        2 */
 {
-    memset( gr, 0, sizeof(*gr) );
-    gr->stop_at = ( multiple ) ? 2 : 1;
+    solve_control_t sc;
+    sc.n_solutions = 0;
+    sc.stop_at = ( multiple ) ? 2 : 1;
     game_new_filled_grid();
-// TODO: in a first pass call check_candidates and if solved return immediatley 1 solution only
-    return try_one_candidate( gr );
+// TODO: in a first pass call check_candidates and if solved return immediately 1 solution only
+    return try_one_candidate( &sc );
 }
+
 #if 0
-static int check_grid_for_solution( void )
-{
-    int total_n_symbols = 0;
-    int nb_row_symbols[SUDOKU_N_ROWS] = { 0 },
-        nb_col_symbols[SUDOKU_N_COLS] = { 0 },
-        nb_box_symbols[SUDOKU_N_BOXES] = { 0 };
-    unsigned char row_symbols[SUDOKU_N_ROWS][SUDOKU_N_SYMBOLS] = { 0 },
-        col_symbols[SUDOKU_N_COLS][SUDOKU_N_SYMBOLS] = { 0 },
-        box_symbols[SUDOKU_N_BOXES][SUDOKU_N_SYMBOLS] = { 0 };
-
-    for ( int col = 0; col < SUDOKU_N_COLS; col ++ ) {
-        for ( int row = 0; row < SUDOKU_N_ROWS; row ++ ) {
-            sudoku_cell_t *cell = get_cell( row, col );
-            check_cell_integrity( cell );
-            if ( 1 == cell->n_symbols ) {
-                unsigned char symbol = sudoku_get_symbol( cell );
-                int k, box = row - (row % 3) + (col / 3);
-
-                /*	printf( "check array[%d][%d] adding symbol %c\n", col, row, symbol ); */
-
-                for ( k = 0; k < nb_row_symbols[row]; k++ ) {
-                    if ( symbol == row_symbols[row][k] ) {
-                        printf("error on row %d duplicate symbol %c\n", row, symbol );
-                        return -1;
-                    }
-                }
-
-                for ( k = 0; k < nb_col_symbols[col]; k++ ) {
-                    if ( symbol == col_symbols[col][k] ) {
-                        printf("error on col %d duplicate symbol %c\n", col, symbol );
-                        return -1;
-                    }
-                }
-
-                for ( k = 0; k < nb_box_symbols[box]; k++ ) {
-                    if ( symbol == box_symbols[box][k] ) {
-                        printf("error on box %d duplicate symbol %c\n", box, symbol );
-                        return -1;
-                    }
-                }
-                row_symbols[row][nb_row_symbols[row]] = symbol;
-                nb_row_symbols[row]++;
-                col_symbols[col][nb_col_symbols[col]] = symbol;
-                nb_col_symbols[col]++;
-                box_symbols[box][nb_box_symbols[box]] = symbol;
-                nb_box_symbols[box]++;
-                total_n_symbols ++;
-            }
-        }
-    }
-    return total_n_symbols;
-}
-#endif
 static void randomly_transpose( )
 {
     int symbols[SUDOKU_N_SYMBOLS] = { -1 };
@@ -398,23 +313,21 @@ static void randomly_transpose( )
     }
 //    print_grid( );
 }
-
-extern int find_one_solution( void )
+#endif
+extern bool find_one_solution( void )
 {
-    game_rating_t ratings;
-    return solve_grid( &ratings, false );
+    if (is_game_solved()) return true;
+    return (bool)solve_grid( false );
 }
 
-extern int check_current_game( void )
+extern int check_current_grid( void )
 {
     int sp = get_sp();
  
-#if 1 // SUDOKU_SOLVE_DEBUG
-    printf( "\n#### Checking current grid for solutions @level %d\n", sp );
-#endif
+    SUDOKU_SOLVE_TRACE( ("\n#### Checking current grid for solutions @level %d\n", sp) );
+
     print_grid_pencils();
-    game_rating_t ratings;
-    int res = solve_grid( &ratings, true );
+    int res = solve_grid( true );
 #if SUDOKU_SOLVE_DEBUG
     if ( 2 == res ) {
         printf("More than one solution!\n");
@@ -430,13 +343,17 @@ extern int check_current_game( void )
 }
 
 #define MAX_TRIALS  1000
+#if 0
+static void reduce_n_given( void )
+{
 
-static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
+}
+#endif
+static bool solve_random_cell_array( unsigned int seed )
 {
     if ( 0 != seed ) set_random_seed( seed );
 
-    reset_stack();
-    empty_grid( get_current_stack_index() );
+    reset_game();
     int n_trials = 0;
 
     while ( true ) {
@@ -450,8 +367,8 @@ static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
             cell->state = SUDOKU_GIVEN;
             cell->symbol_map = get_map_from_number( symbol );
             cell->n_symbols = 1;
-            int res = solve_grid( ratings, true );
-            printf( "solve_random_cell_array: solve_grid returned %d\n", res );
+            int res = solve_grid( true );
+            SUDOKU_SOLVE_TRACE( ("solve_random_cell_array: solve_grid returned %d\n", res) );
             reset_stack();
             if ( 1 == res ) break;  // exactly one solution, exit
             if ( 0 == res ) {       // no solution, remove symbol and keep trying
@@ -462,8 +379,11 @@ static bool solve_random_cell_array( unsigned int seed, game_rating_t *ratings )
             if ( ++n_trials > MAX_TRIALS ) return false;
         }
     }
-    printf( "Generated unique solution grid with  %d symbols @level %d\n", count_single_symbol_cells(), get_sp() );
+    SUDOKU_SOLVE_TRACE( ("Generated unique solution grid with %d symbols @level %d\n",
+                         count_single_symbol_cells(), get_sp()) );
+#if SUDOKU_SOLVE_DEBUG
     print_grid_pencils();
+#endif
     return true;
 }
 
@@ -502,22 +422,22 @@ static sudoku_level_t assess_hint_stats( hint_stats_t *hstats )
 
 static sudoku_level_t evaluate_level( void )
 {
-    print_grid_pencils(); // before
+//    print_grid_pencils(); // before
     game_new_filled_grid();
-    print_grid_pencils(); // after
+//    print_grid_pencils(); // after
 
     hint_stats_t hstats = { 0 };
     hint_desc_t hdesc;
     while ( true ) {
         if ( ! get_hint( &hdesc ) ) break;  // no hint
-
+#if 0
         printf("@act_on_hint:\n");
         printf("  hint_type %d\n", hdesc.hint_type);
         printf("  n_hints %d\n", hdesc.n_hints);
         printf("  n_triggers %d\n", hdesc.n_triggers);
         printf("  action %d n_symbols=%d, map=0x%03x\n",
                hdesc.action, hdesc.n_symbols, hdesc.symbol_map);
-
+#endif
         switch( hdesc.hint_type ) {
         case NO_HINT: case NO_SOLUTION:
             SUDOKU_ASSERT( 0 );
@@ -562,18 +482,16 @@ extern sudoku_level_t make_game( int game_nb )
 #endif /* TIME_MREASURE */
 
     printf("SUDOKU game_nb %d\n", game_nb );
-
-    game_rating_t ratings;
-    if ( ! solve_random_cell_array( game_nb, &ratings ) ) {
+    if ( ! solve_random_cell_array( game_nb ) ) {
         printf("solve_random_cell_array did not find a unique solution!\n");
         exit(1);
     }
-    printf("make_game: found unique solution\n");
-    randomly_transpose( );
-    if ( 1 !=  check_current_game( ) ) {
-        printf("no unique solution after randomly_transpose\n");
-        exit(1);
-    }
+//    printf("make_game: found unique solution\n");
+//    randomly_transpose( );
+//    if ( 1 !=  check_current_game( ) ) {
+//        printf("no unique solution after randomly_transpose\n");
+//        exit(1);
+//    }
 
 #ifdef TIME_MEASURE
     if( -1 == time ( &end_time ) ) {

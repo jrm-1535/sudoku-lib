@@ -16,6 +16,10 @@
 #define SUDOKU_SOLVE_DEBUG      0   /**< Turn on solver debugging */
 #endif
 
+#ifndef SUDOKU_HINT_DEBUG
+#define SUDOKU_HINT_DEBUG       0   /**< Turn on hint debugging */
+#endif
+
 #ifndef SUDOKU_FILE_DEBUG
 #define SUDOKU_FILE_DEBUG       0   /**< Turn on file (save/load) debugging */
 #endif
@@ -39,5 +43,8 @@
 #else
 #define SUDOKU_ASSERT( _a )
 #endif
+
+#define SUDOKU_SOLVE_TRACE( _args ) SUDOKU_TRACE( SUDOKU_SOLVE_DEBUG, _args )
+#define SUDOKU_HINT_TRACE( _args )  SUDOKU_TRACE( SUDOKU_HINT_DEBUG, _args )
 
 #endif /* __DEBUG_H__ */

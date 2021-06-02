@@ -555,7 +555,7 @@
 @ref operation
    for game functions that can be called by the front end at any time, but
    usually as a result of a user action (typically activating a menu, moving
-   the selected cell or ebtering a symbol). Most of those functions, if not
+   the selected cell or entering a symbol). Most of those functions, if not
    all, should be called at some point in the game in order to run the game.
 
 @ref helper
@@ -851,7 +851,7 @@ extern void sudoku_game_init( const void *cntxt, sudoku_ui_table_t *fcts );
 
 /** @addtogroup helper
 
-   The following three functions are provided by the game as a help to implement
+   The following five functions are provided by the game as a help to implement
    stateless user interfaces.
    @{
 */

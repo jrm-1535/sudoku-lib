@@ -78,17 +78,6 @@ extern stack_pointer_t get_low_water_mark( void )
     return low_water_mark;
 }
 
-// TODO: see if it can removed (used only in hint.c)
-extern void return_to_low_water_mark( stack_pointer_t mark )
-{
-    SUDOKU_ASSERT ( 0 != low_water_mark );
-
-    if ( low_water_mark == mark ) {
-        low_water_mark = 0;
-    }
-    stack_pointer = mark;
-}
-
 extern stack_index_t reset_stack( void )
 {
     stack_pointer = 1;

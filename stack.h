@@ -61,15 +61,9 @@ extern stack_index_t set_sp( stack_pointer_t sp );
 /* Because the undo stack is limited, there is a possibility that
    undo cannot work. A special mark in the stack, low water mark
    guarantees it is always possible to undo from the top of stack
-   to that mark. The mark value is a theoretical stack pointer.
-
-   It is also possible to quickly go back to the low water mark,
-   dismissing all previously stacked operations, by calling
-   return_to_low_water_mark.
-*/
+   to that mark. The mark value is a theoretical stack pointer. */
 extern void set_low_water_mark( stack_pointer_t mark );
 extern stack_pointer_t get_low_water_mark( void );
-extern void return_to_low_water_mark( stack_pointer_t mark );
 
 /* The following functions return the current real stack index,
    which can be directly used to access the current game. */

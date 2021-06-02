@@ -312,6 +312,13 @@ extern void game_new_grid( void )           // save current grid and create a ne
     cancel_redo();                          // no redo since stack is different
 }
 
+extern void game_previous_grid( void )
+{
+    stack_index_t psi = pop( );
+    SUDOKU_ASSERT( -1 != psi );
+    (void)psi;
+}
+
 extern void game_new_empty_grid( void )     // save current grid and create a new empty grid
 {
     stack_index_t csi = push();

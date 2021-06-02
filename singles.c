@@ -14,13 +14,8 @@ static int remove_symbol( int row, int col, int remove_mask )
 {
     sudoku_cell_t *cell = get_cell( row, col );
 
-//    if ( cell->n_symbols >= 1 && (cell->symbol_map & remove_mask) ) {
     if ( cell->symbol_map & remove_mask ) {
-        if ( cell->n_symbols == 1 ) {
-            print_grid_pencils();
-            printf( "remove_symbol mask = 0x%03x row %d, col %d\n", remove_mask, row, col );
-        }
-        SUDOKU_ASSERT ( cell->n_symbols > 1 );                  // in theory not possible
+        SUDOKU_ASSERT ( cell->n_symbols > 1 );                  // in theory 0 or 1 is not possible
         cell->symbol_map &= ~remove_mask;                       // remove single symbol mask
         if ( 1 == --cell->n_symbols ) return cell->symbol_map;  // found a new naked single
     }
@@ -354,8 +349,8 @@ static void set_box_triggers( int box, int row_hint, int col_hint, int mask, hin
     int trow, tcol;
 
     fill_box_rows_cols( box, row_hint, col_hint, &trow, trigger_rows, &tcol, trigger_cols );
-//debug
-    printf( "Hidden single: %d trigger_rows, %d trigger_cols\n", trow, tcol );
+
+    SUDOKU_HINT_TRACE( ("Hidden single: %d trigger_rows, %d trigger_cols\n", trow, tcol) );
 
     // validate rows that do have a trigger
     for ( int i = 0; i < trow; ++i ) {
@@ -365,8 +360,8 @@ static void set_box_triggers( int box, int row_hint, int col_hint, int mask, hin
             sudoku_cell_t *cell = get_cell( trigger_rows[i].row, c );
             if ( 1 == cell->n_symbols && ( mask & cell->symbol_map ) ) {
                 trigger_rows[i].trigger = c;
-                printf( "Validate: trigger_rows[%d].row=%d, trigger=%d\n",
-                        i, trigger_rows[i].row, trigger_rows[i].trigger );
+                SUDOKU_HINT_TRACE( ("Validate: trigger_rows[%d].row=%d, trigger=%d\n",
+                                    i, trigger_rows[i].row, trigger_rows[i].trigger) );
                 break;
             }
         }
@@ -378,8 +373,8 @@ static void set_box_triggers( int box, int row_hint, int col_hint, int mask, hin
             sudoku_cell_t *cell = get_cell( r, trigger_cols[j].col );
             if ( 1 == cell->n_symbols && ( mask & cell->symbol_map ) ) {
                 trigger_cols[j].trigger = r;
-                printf( "Validate: trigger_cols[%d].col=%d, trigger=%d\n",
-                        j, trigger_cols[j].col, trigger_cols[j].trigger );
+                SUDOKU_HINT_TRACE( ("Validate: trigger_cols[%d].col=%d, trigger=%d\n",
+                                    j, trigger_cols[j].col, trigger_cols[j].trigger) );
                 break;
             }
         }
@@ -390,13 +385,13 @@ static void set_box_triggers( int box, int row_hint, int col_hint, int mask, hin
         if ( -1 == trigger_rows[i].trigger ) continue;
         for ( int j = 0; j < tcol; ++ j ) {
             if ( -1 == trigger_cols[j].trigger ) continue;
-            printf( "Cleanup: trigger_rows[%d].row=%d, trigger_cols[%d].row_map=0x%03x trigger=%d\n",
-                    i, trigger_rows[i].row, j, trigger_cols[j].row_map, trigger_cols[j].trigger );
+            SUDOKU_HINT_TRACE( ("Cleanup: trigger_rows[%d].row=%d, trigger_cols[%d].row_map=0x%03x trigger=%d\n",
+                                i, trigger_rows[i].row, j, trigger_cols[j].row_map, trigger_cols[j].trigger) );
             trigger_cols[j].row_map &= ~(1 << trigger_rows[i].row);
             if ( 0 == trigger_cols[j].row_map ) {
                 trigger_cols[j].trigger = -1;
-                printf( "After removing: trigger_cols[j].row_map=0x%03x, trigger=%d\n",
-                        trigger_cols[j].row_map, trigger_cols[j].trigger );
+                SUDOKU_HINT_TRACE( ("After removing: trigger_cols[j].row_map=0x%03x, trigger=%d\n",
+                                    trigger_cols[j].row_map, trigger_cols[j].trigger) );
             }
         }
     }
@@ -404,25 +399,25 @@ static void set_box_triggers( int box, int row_hint, int col_hint, int mask, hin
         if ( -1 == trigger_cols[j].trigger ) continue;
         for ( int i = 0; i < trow; ++i ) {
             if ( -1 == trigger_rows[i].trigger ) continue;
-            printf( "Cleanup: trigger_cols[%d].col=%d, trigger_rows[%d].col_map=0x%03x trigger=%d\n",
-                    j, trigger_cols[j].col, i, trigger_rows[i].col_map, trigger_rows[i].trigger );
+                SUDOKU_HINT_TRACE( ("Cleanup: trigger_cols[%d].col=%d, trigger_rows[%d].col_map=0x%03x trigger=%d\n",
+                                    j, trigger_cols[j].col, i, trigger_rows[i].col_map, trigger_rows[i].trigger) );
             trigger_rows[i].col_map &= ~(1 << trigger_cols[j].col);
             if ( 0 == trigger_rows[i].col_map ) {
                 trigger_rows[i].trigger = -1;
-                printf( "After removing: trigger_rows[i].row_map=0x%03x, trigger=%d\n",
-                        trigger_rows[i].col_map, trigger_rows[i].trigger );
+                SUDOKU_HINT_TRACE( ("After removing: trigger_rows[i].row_map=0x%03x, trigger=%d\n",
+                                    trigger_rows[i].col_map, trigger_rows[i].trigger) );
             }
         }
     }
 
     for ( int i = 0; i < trow; ++i ) {
         if ( -1 == trigger_rows[i].trigger ) continue;
-//printf("Setting trigger (%d, %d)\n", trigger_rows[i].row, trigger_rows[i].trigger );
+        SUDOKU_HINT_TRACE( ("Setting trigger (%d, %d)\n", trigger_rows[i].row, trigger_rows[i].trigger) );
         hint_desc_add_row_col_trigger( hdesc, trigger_rows[i].row, trigger_rows[i].trigger, REGULAR_TRIGGER );
     }
     for ( int j = 0; j < tcol; ++j ) {
         if ( -1 == trigger_cols[j].trigger ) continue;
-//printf("Setting trigger (%d, %d)\n", trigger_cols[j].trigger, trigger_cols[j].col );
+        SUDOKU_HINT_TRACE( ("Setting trigger (%d, %d)\n", trigger_cols[j].trigger, trigger_cols[j].col) );
         hint_desc_add_row_col_trigger( hdesc, trigger_cols[j].trigger, trigger_cols[j].col, REGULAR_TRIGGER );
     }
 }

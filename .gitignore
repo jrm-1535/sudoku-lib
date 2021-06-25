@@ -12,9 +12,4 @@ test/
 # the following patterns match temporary local files
 .sudoku-options
 *.sdk
-*.txt
-*-old*
-quad*
-thint*
-
-
+specs/

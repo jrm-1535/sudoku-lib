@@ -88,7 +88,7 @@ extern void select_row_col( int row, int col )
     colArray[ csi ] = col;
 }
 
-extern sudoku_cell_t * get_cell( int row, int col ) // exported to gen.c and hint.c
+extern sudoku_cell_t * get_cell( int row, int col ) // exported to solve.c and hint.c
 {
     int csi = get_current_stack_index( );
     return &cellArray[csi][row][col];
@@ -450,6 +450,8 @@ printf( "get_no_conflict_candidates: row %d col %d, map 0x%03x n_symbols %d\n", 
 typedef struct { int row, col, mask; } symbol_location_t;
 
 static int remove_symbol( symbol_location_t *queue, int *beyond, int row, int col, int mask )
+/* returns -1 if it is an invalid cell, 0 if the cell does not contain the symbol mask or is a given,
+   or 1 if it did and the new cell location has been added to the queue. */
 {
     sudoku_cell_t *cell = get_cell( row, col );
 
@@ -474,6 +476,8 @@ static int remove_symbol( symbol_location_t *queue, int *beyond, int row, int co
 }
 
 extern bool remove_grid_conflicts( void )
+/* it returns false if the grid is invalid or true if it is a valid grid.
+   If valid the grid has been cleaned up from any possible conflict */
 {
     symbol_location_t queue[ SUDOKU_N_SYMBOLS * SUDOKU_N_SYMBOLS ];
     int start = 0;

@@ -481,6 +481,7 @@ static void start_new_game( const void *cntxt, const char *name )
     SUDOKU_SET_BACK_LEVEL( cntxt, 0 );
     SUDOKU_SET_WINDOW_NAME( cntxt, name );
     set_game_state( cntxt, SUDOKU_STARTED );
+    SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_BLANK, 0 );
     set_game_time( 0 );
     SUDOKU_REDRAW( cntxt );
 }
@@ -678,6 +679,11 @@ extern void sudoku_fill_all( const void *cntxt, bool no_conflict )
     if ( no_conflict ) {
         if ( ! remove_grid_conflicts() ) {
             SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_CHECK, 0 );
+        } else if ( is_game_solved() ) {
+            set_game_state( cntxt, SUDOKU_OVER );
+            SUDOKU_SET_STATUS( cntxt, SUDOKU_STATUS_OVER, 0 );
+            SUDOKU_REDRAW( cntxt );
+            return;
         }
     }
     update_edit_menu( cntxt );

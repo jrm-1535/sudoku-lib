@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "grid.h"
 #include "game.h"
@@ -561,6 +562,10 @@ extern void sudoku_game_init( const void *cntxt, sudoku_ui_table_t *fcts )
 
     reset_game( );
     set_game_state( cntxt, SUDOKU_INIT );
+
+    time_t initialized;
+    time( &initialized );
+    set_random_seed ( (unsigned)initialized );
 }
 
 extern void sudoku_mark_state( const void *cntxt )

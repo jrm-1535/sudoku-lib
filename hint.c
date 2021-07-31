@@ -261,6 +261,7 @@ extern bool act_on_hint( hint_desc_t *hdesc )
     SUDOKU_ASSERT( hdesc->n_hints );
     switch ( hdesc->action ) {
     case NONE: case ADD:
+        printf("Action %d\n", hdesc->action );
         SUDOKU_ASSERT( 0 );
     case SET:
         for ( int i = 0; i < hdesc->n_hints; ++i ) {

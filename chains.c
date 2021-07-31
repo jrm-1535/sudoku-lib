@@ -152,10 +152,6 @@ static bool locate_forbidden_candidates( chain_link_t *chain, int n_links,
                 chain[i].polarity = 0;
             }
             hdesc->n_hints = n_hints;
-            hdesc->hint_pencil = true;
-            hdesc->symbol_map = symbol_mask;
-            hdesc->n_symbols = 1;
-            hdesc->action = REMOVE;   // TODO: change to the proper action
             return true;                        // stop here since segment generated hints
         }
         start = end + 1;                        // else try next segment, till the end of chain
@@ -323,8 +319,8 @@ static int process_weak_relations( chain_link_t *chain, int n_links, int symbol_
         for ( int j = i+1; j < n_segments; ++ j ) {
             if ( find_chain_exclusions( chain, symbol_mask,
                                         segments[i].beg, segments[i].end,
-                                         segments[j].beg, segments[j].end,
-                                         hdesc ) ) {
+                                        segments[j].beg, segments[j].end,
+                                        hdesc ) ) {
                 // segments i & j provide some hints: make them active
                 printf( "Active segments %d, %d\n", i, j );
                 segments[i].active = segments[j].active = true;
@@ -468,9 +464,14 @@ static void print_forbidden_candidates( hint_desc_t *hdesc )
     }
 }
 
-static void setup_chain_hints_triggers( chain_link_t *chain, int n_links, hint_desc_t *hdesc )
+static void setup_chain_hints( chain_link_t *chain, int symbol_mask, int n_links, hint_desc_t *hdesc )
 {
     hdesc->hint_type = CHAIN;
+    hdesc->hint_pencil = true;
+    hdesc->symbol_map = symbol_mask;
+    hdesc->n_symbols = 1;
+    hdesc->action = REMOVE;
+
     for ( int i = 0; i < n_links; ++i ) {
         if ( 0 == chain[i].polarity ) continue;
 
@@ -526,13 +527,13 @@ extern bool search_for_forbidding_chains( hint_desc_t *hdesc )
         if ( locate_forbidden_candidates( chain, n_links, 1 << candidate, hdesc ) ) {
             printf("    %d direct hints:\n", hdesc->n_hints );
             print_forbidden_candidates( hdesc );
-            setup_chain_hints_triggers( chain, n_links, hdesc );
+            setup_chain_hints( chain, 1 << candidate, n_links, hdesc );
             return true;
         }
         if ( process_weak_relations( chain, n_links, 1 << candidate, hdesc ) ) { 
             printf("    %d weak relation hints:\n", hdesc->n_hints );
             print_forbidden_candidates( hdesc );
-            setup_chain_hints_triggers( chain, n_links, hdesc );
+            setup_chain_hints( chain, 1 << candidate, n_links, hdesc );
             return true;
         }
     }

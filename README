@@ -6,15 +6,12 @@ Add a frontend UI to implement the game. Under gtk3/ is an example of frontend.
 
 The library implements a solver and generator and an undo/redo stack of operations.
 It gives a difficulty level for each game, from 1-easy to 4-difficult, and provides tools to operate on a game.
-Among the tools are operations such as filling a square with candidates, hinting about a next step, solving the next step,
-checking if a solution exists from the current state and showing the solution.
+Among the tools are operations such as filling a square with candidates, hinting about a next step, solving the next step, checking if a solution exists from the current state and showing the solution.
 
-The undo/redo stack is associated with a bookmark stack that allows undoing quickly to the previous bookmark,
-in case it is necessary to guess and try.
+The undo/redo stack is associated with a bookmark stack that allows undoing quickly to the previous bookmark, in case it is necessary to guess and try.
 
 It is possible to save a game and resume it later, to get a new random game or to pick a specific game number.
-It is also possible to create a new game manually by entering symbols in a grid. The library indicates when the current grid
-has no solution, more than one solution, or exactly one solution, allowing the user to commit the grid as a new game.
+It is also possible to create a new game manually by entering symbols in a grid. The library indicates when the current grid has no solution, more than one solution, or exactly one solution, allowing the user to commit the grid as a new game.
 
 The sudoku solver and sudoku generator are using an efficient implementation of Knuth's dancing links version of the exact cover algorithm (DLX).
 
